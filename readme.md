@@ -1,9 +1,11 @@
 # emModbus2influx
 ## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT
 
+still work in progress, works but not yet long time tested
+
 ### Definitions
-**MeterType** - a definition of the registers,  register types and more of a specific modbus slave
-**Meter** - a definition of a physical modbus slave based on a MeterType
+- **MeterType** - a definition of the registers,  register types and more of a specific type of modbus slave
+- **Meter** - a definition of a physical modbus RTU or TCP slave based on a MeterType
 
 It is named meter because it was originally used to query energy meters but in fact it can query any modbus slave. I'm using it for energy meters, Fronius solar inverters as well as Victron Energy GX.
 ### Features
@@ -12,12 +14,20 @@ It is named meter because it was originally used to query energy meters but in f
  - unlimited number of metertypes and meters
  - supports SUNSPEC meter definitions (tested with Fronius Symo)
  - supports formulas for changing values after read or for defining new fields (in the metertype as well as in the meter definition)
+ - MQTT data is written on every query to have near realtime values (if MQTT is enabled), InfluxDB writes can be restricted to n queries where you can specify for each field if max,min or average values will be posted to InfluxDB
+ - Virtual devices=Meters can be defined, these can post values from different Modbus slaves to MQTT and/or InfluxDB
+ - Using formulas and virtual meters without any Modbus device, test data for MQTT and/or InflixDB can be generated (example: config-02.conf)
  - supports dryrun for testing definitions
  - supports interactive formula testing
  - use of [libmodbus](https://libmodbus.org/) for modbus TCP/RTU communication
  - use of [paho-c](https://github.com/eclipse/paho.mqtt.c) for MQTT
  - use of [muparser](https://beltoforion.de/en/muparser/) for formula parsing
  - libmodbus,paho-c and muparser can by dynamic linked (default) or downloaded, build and linked static automatically when not available on target platform, e.g. Victron Energy Cerbox GX (to be set at the top of Makefile)
+ - unlimited number of MeterTypes, Meters and Modbus TCP slaves
+
+### Restrictions
+- currently only one Modbus RTU interface (=serial port) is supported (can be used by multiple Meters)
+- all Meters will be queried at the specified poll interval, however, InfluxDB writes can be delayed
 
 ### Get started
 
@@ -45,7 +55,7 @@ stopbits=1
 name = "Fronuis_Symo"
 sunspec
 id=103
-readid=103	# Inverter block type 103, length=50 (at least on my Symo)
+readid=103	# Inverter block type 103, length will be read from device (50 on my Symo)
 "i"  = 2,uint16,sf=6
 "p"  = 14,uint16,sf=15,force=int
 
@@ -53,7 +63,7 @@ readid=103	# Inverter block type 103, length=50 (at least on my Symo)
 name = "DRT428M_3"	# same as ORNO OE-WE-517
 
 # set tarif time 1 for tarif 1 at any time and disable other tarif times
-init = 0x300,0,1,0*10
+init = 0x300,0,1,0*10   # write 0x000,0x001 and 10 times 0x000
 init = 0x030c,0*12
 init = 0x0318,0*12
 init = 0x0324,0*12
@@ -63,7 +73,7 @@ init = 0x0348,0*12
 init = 0x0354,0*12
 
 # set current meter tarif
-# settarif = n, Address or sunspec offset, uint16 value [,uint16 value ...]
+# settarif = n, Address, uint16 value [,uint16 value ...]
 # n is in range of 1 to 4
 settarif = 1,0x300,0,1
 settarif = 2,0x300,0,2
@@ -71,7 +81,7 @@ settarif = 3,0x300,0,3
 settarif = 4,0x300,0,4
 
 # read voltage, current and power
-read =0x0e,22
+read =0x0e,22       # read a block of 22 registers (44 Bytes) starting at 0x0e
 
 # consumption per tarif
 read=0x130,38
@@ -87,7 +97,7 @@ read=0x130,38
 "p3"=0x22,float,arr="p",force=int
 
 # total energy
-"kwh"=0x100,float,force=int
+"kwh"=0x100,float,force=int     # send as int to InfluxDB / MQTT
 
 # energy for up to 4 tarifs
 "kwh_1"=0x130,float,force=int,arr="kwh_t"
