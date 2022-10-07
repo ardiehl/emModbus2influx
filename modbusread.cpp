@@ -872,19 +872,19 @@ void executeInfluxWriteCalc (int verboseMsg, meter_t *meter) {
             case pr_last:
                 break;
             case pr_max:
-                printf("max %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
+                //LOG(9,"max %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
                 if (mrrd->fvalueInflux < mrrd->fvalueInfluxLast) mrrd->fvalueInflux = mrrd->fvalueInfluxLast;
-                printf("-> %10.2f\n",mrrd->fvalueInflux);
+                //LOG(9,("-> %10.2f\n",mrrd->fvalueInflux);
                 break;
             case pr_min:
-                printf("min %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
+                //LOG(9,"min %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
                 if (mrrd->fvalueInflux > mrrd->fvalueInfluxLast) mrrd->fvalueInflux = mrrd->fvalueInfluxLast;
-                printf("-> %10.2f\n",mrrd->fvalueInflux);
+                //LOG(9,"-> %10.2f\n",mrrd->fvalueInflux);
                 break;
             case pr_avg:
-                printf("avg %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
+                //LOG(9,"avg %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mrrd->fvalue,mrrd->fvalueInflux,mrrd->fvalueInfluxLast);
                 mrrd->fvalueInflux = (mrrd->fvalueInflux + mrrd->fvalueInfluxLast) / 2.0;
-                printf("-> %10.2f\n",mrrd->fvalueInflux);
+                //LOG(9,"-> %10.2f\n",mrrd->fvalueInflux);
                 break;
         }
         mrrd = mrrd->next;
@@ -895,24 +895,24 @@ void executeInfluxWriteCalc (int verboseMsg, meter_t *meter) {
             case pr_last:
                 break;
             case pr_max:
-                printf("max %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
+                //LOG(9,"max %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
                 if (mf->fvalueInflux < mf->fvalueInfluxLast) mf->fvalueInflux = mf->fvalueInfluxLast;
-                printf("-> %10.2f\n",mf->fvalueInflux);
+                //LOG(9,"-> %10.2f\n",mf->fvalueInflux);
                 break;
             case pr_min:
-                printf("min %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
+                //LOG(9,"min %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
                 if (mf->fvalueInflux > mf->fvalueInfluxLast) mf->fvalueInflux = mf->fvalueInfluxLast;
-                printf("-> %10.2f\n",mf->fvalueInflux);
+                //LOG(9,"-> %10.2f\n",mf->fvalueInflux);
                 break;
             case pr_avg:
-                printf("avg %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
+                //LOG(9,"avg %d fvalue: %10.2f fvalueInflux: %10.2f fvalueInfluxLast: %10.2f ",meter->influxWriteCountdown,mf->fvalue,mf->fvalueInflux,mf->fvalueInfluxLast);
                 mf->fvalueInflux = (mf->fvalueInflux + mf->fvalueInfluxLast) / 2.0;
-                printf("-> %10.2f\n",mf->fvalueInflux);
+                //LOG(9,"-> %10.2f\n",mf->fvalueInflux);
                 break;
         }
         mf = mf->next;
     }
-}
+}b
 
 
 void setfvalueInfluxLast () {
