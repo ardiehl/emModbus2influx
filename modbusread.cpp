@@ -912,7 +912,7 @@ void executeInfluxWriteCalc (int verboseMsg, meter_t *meter) {
         }
         mf = mf->next;
     }
-}b
+}
 
 
 void setfvalueInfluxLast () {

@@ -456,7 +456,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 
 
 
-int influxAppendData (meter_t *meter) {
+int influxAppendData (meter_t *meter, uint64_t timestamp) {
 	meterRegisterRead_t *rr;
 	meterFormula_t *mf;
 	int regCount = 0;
@@ -479,7 +479,7 @@ int influxAppendData (meter_t *meter) {
 	while (rr) {
         if (rr->registerDef->enableInfluxWrite) {
             if (rr->isInt) {
-                influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux) ,INFLUX_END);
+                influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
                 if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
             } else {
                 influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_FLT(rr->registerDef->name, rr->fvalueInflux, rr->registerDef->decimals), INFLUX_END);
@@ -502,6 +502,9 @@ int influxAppendData (meter_t *meter) {
 		}
 		mf = mf->next;
 	}
+	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_TS(timestamp), INFLUX_END);
+	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
+
 
 	return regCount;
 }
@@ -516,6 +519,7 @@ void traceCallback(enum MQTTCLIENT_TRACE_LEVELS level, char *message) {
 int main(int argc, char *argv[]) {
 	int rc,i;
 	meter_t *meter;
+	uint64_t influxTimestamp;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
 
@@ -656,10 +660,11 @@ int main(int argc, char *argv[]) {
 		if (rc >= 0) {
 			if (iClient) {		// influx
 				influxBufUsed = 0; influxBuf=NULL;
+				influxTimestamp = influxdb_getTimestamp();
 				meter = meters;
 				while(meter) {
                     if(meter->influxWriteCountdown == 0) {
-                        influxAppendData (meter);
+                        influxAppendData (meter, influxTimestamp);
                         meter->influxWriteCountdown = meter->influxWriteMult;
                     }
 					meter = meter->next;
