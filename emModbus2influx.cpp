@@ -55,7 +55,7 @@ int serStopbits;
 int ser_rs485;
 int dumpRegisters;
 int dryrun;
-int queryInterval = 5;	// seconds
+int queryIntervalSecs = 5;	// seconds
 char *formulaValMeterName;
 int formulaTry;
 int scanRTU;
@@ -176,7 +176,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
-		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryInterval        ,"poll intervall in seconds")
+		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
 		AP_OPT_INTVALF      (0,'y',"syslog"         ,&syslog               ,"log to syslog insead of stderr")
 		AP_OPT_INTVALF_CB   (0,'Y',"syslogtest"     ,NULL                  ,"send a testtext to syslog and exit",&syslogTestCallback)
 		AP_OPT_INTVALF_CB   (0,'e',"version"        ,NULL                  ,"show version and exit",&showVersionCallback)
@@ -515,11 +515,16 @@ void traceCallback(enum MQTTCLIENT_TRACE_LEVELS level, char *message) {
 	printf(message); printf("\n");
 }
 
+#define NANO_PER_SEC 1000000000.0
 
 int main(int argc, char *argv[]) {
 	int rc,i;
 	meter_t *meter;
 	uint64_t influxTimestamp;
+	struct timespec timeStart, timeEnd;
+	time_t nextQueryTime;
+	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
+	double queryTime;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
 
@@ -653,10 +658,17 @@ int main(int argc, char *argv[]) {
 
 	int loopCount = 0;
 	while (!terminated) {
+		nextQueryTime = time(NULL) + queryIntervalSecs;
         loopCount++;
         if (dryrun) printf("- %d -----------------------------------------------------------------------\n",loopCount);
+        if (dryrun || verbose>0) clock_gettime(CLOCK_REALTIME,&timeStart);
 		rc = queryMeters(verbose);
 		setTarif (verbose);
+		clock_gettime(CLOCK_REALTIME,&timeEnd);
+		queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+		if (dryrun || verbose>0)
+			printf("Query took %4.2f seconds\n",queryTime);
+
 		if (rc >= 0) {
 			if (iClient) {		// influx
 				influxBufUsed = 0; influxBuf=NULL;
@@ -676,13 +688,13 @@ int main(int argc, char *argv[]) {
 					rc = influxdb_post_http_line(iClient, influxBuf);
 					influxBuf=NULL;
 					if (rc != 0) {
-						LOGN(0,"influxdb_post_http_line returned %d",rc);
+						LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
 					}
 				}
 			}
 
 			if (mClient) {		// mqtt
-				if (dryrun) printf("\nDryrun: would send to mqtt:\n");
+				if (dryrun) printf("Dryrun: would send to mqtt:\n");
 				meter = meters;
 				while(meter) {
 					mqttSendData (meter,dryrun);
@@ -692,11 +704,15 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
+		if (time(NULL) >= nextQueryTime && !isFirstQuery)
+			LOGN(0,"Warning: query took more time (%1.2f seconds) than the defined poll interval of %d seconds",queryTime,queryIntervalSecs);
 
-        for(i=0;i<queryInterval;i++) {
-            sleep(1);
-            if (terminated) break;
-        }
+		while (time(NULL) < nextQueryTime && !terminated) {
+			msleep(100);
+		}
+
+		if (isFirstQuery) isFirstQuery--;
+
         if (dryrun) {
             dryrun--;
             if (!dryrun) terminated++;

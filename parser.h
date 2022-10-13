@@ -1,3 +1,15 @@
+/*
+ * parser.h
+ *
+ * Copyright 2022 Armin Diehl <ad@ardiehl.de>
+ *
+ * Simple text file parser used to read config file
+ *
+ * License: GPL
+ *
+*/
+
+
 #ifndef PARSER_H_INCLUDED
 #define PARSER_H_INCLUDED
 
@@ -107,7 +119,7 @@ int gch (parser_t * pa);
 
 
 /**
- get char
+ get token
  @param a pointer to an initialized parser struct
  @return next token and values (iVal,fVal or strVal in pa)
  */

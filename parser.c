@@ -1,3 +1,15 @@
+/*
+ * parser.c
+ *
+ * Copyright 2022 Armin Diehl <ad@ardiehl.de>
+ *
+ * Simple text file parser used to read config file
+ *
+ * License: GPL
+ *
+ */
+
+
 #include "parser.h"
 #include <string.h>
 #include <stdarg.h>
