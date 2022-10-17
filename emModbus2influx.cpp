@@ -685,10 +685,12 @@ int main(int argc, char *argv[]) {
                     if (influxBuf) printf("\nDryrun: would send to influxdb:\n%s\n",influxBuf);
 					free(influxBuf); influxBuf = NULL;
 				} else {
-					rc = influxdb_post_http_line(iClient, influxBuf);
-					influxBuf=NULL;
-					if (rc != 0) {
-						LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
+					if (influxBuf) {
+						rc = influxdb_post_http_line(iClient, influxBuf);
+						influxBuf=NULL;
+						if (rc != 0) {
+							LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
+						}
 					}
 				}
 			}

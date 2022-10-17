@@ -16,7 +16,7 @@ It is named meter because it was originally used to query energy meters but in f
  - supports formulas for changing values after read or for defining new fields (in the metertype as well as in the meter definition)
  - MQTT data is written on every query to have near realtime values (if MQTT is enabled), InfluxDB writes can be restricted to n queries where you can specify for each field if max,min or average values will be posted to InfluxDB
  - Virtual devices=Meters can be defined, these can post values from different Modbus slaves to MQTT and/or InfluxDB
- - Using formulas and virtual meters without any Modbus device, test data for MQTT and/or InflixDB can be generated (example: config-02.conf)
+ - Using formulas and virtual meters without any Modbus device, test data for MQTT and/or InfluxDB can be generated (example: config-02.conf)
  - supports dryrun for testing definitions
  - supports interactive formula testing
  - use of [libmodbus](https://libmodbus.org/) for modbus TCP/RTU communication
@@ -435,6 +435,10 @@ The result of the formula will be the new value. The current value as well as th
 ```mqtt=```
 0 or 1, 0 will disable this register for influxdb. The default if influx= is not specified is 1.
 
+```imax```
+```imin```
+```iavg```
+When using influxwritemult= , these options specify if the maximun, minimum or the average value will be written to influxdb.
 
 # Meter definitions
 Each meter definition starts with

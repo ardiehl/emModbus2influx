@@ -813,7 +813,7 @@ int parseMeter (parser_t * pa) {
 			}
 		}
 	}
-	meter->influxWriteCountdown = meter->influxWriteMult;
+	if (meter->influxWriteMult) meter->influxWriteCountdown = -1; // meter->influxWriteMult;
 
 	return tk;
 }

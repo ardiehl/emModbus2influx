@@ -861,6 +861,12 @@ void executeInfluxWriteCalc (int verboseMsg, meter_t *meter) {
         return;
     }
 
+    if (meter->influxWriteCountdown == -1) {
+		// force write on first run after program start
+		meter->influxWriteCountdown++;
+		return;
+    }
+
     if (meter->influxWriteCountdown == 0)
         meter->influxWriteCountdown = meter->influxWriteMult;
 
