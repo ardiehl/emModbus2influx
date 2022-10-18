@@ -315,7 +315,7 @@ int resolvHostname (influx_client_t *c) {
         c->ainfo=NULL;
     }
     c->hostResolved=0;
-    res = getaddrinfo(c->host, &service, NULL /*&hints*/, &c->ainfo);
+    res = getaddrinfo(c->host, (const char *)&service, NULL /*&hints*/, &c->ainfo);
     if (res != 0) {
         LOGN(0,"unable to resolve host %s:%s",c->host,service);
         return -1;

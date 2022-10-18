@@ -575,6 +575,9 @@ int parseMeter (parser_t * pa) {
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
 	while (tk != TK_SECTION && tk != TK_EOF) {
 		switch(tk) {
+	    case TK_PORT:
+                parserExpectEqual(pa,TK_STRVAL);
+		meter->port=strdup(pa->strVal);
             case TK_MODBUSDEBUG:
                 parserExpectEqual(pa,TK_INTVAL);
 				meter->modbusDebug = pa->iVal;
