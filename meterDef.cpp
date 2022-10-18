@@ -578,6 +578,7 @@ int parseMeter (parser_t * pa) {
 	    case TK_PORT:
                 parserExpectEqual(pa,TK_STRVAL);
 		meter->port=strdup(pa->strVal);
+		break;
             case TK_MODBUSDEBUG:
                 parserExpectEqual(pa,TK_INTVAL);
 				meter->modbusDebug = pa->iVal;
