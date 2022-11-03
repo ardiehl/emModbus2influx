@@ -221,6 +221,7 @@ mqttretain=0
 
 Parameters for MQTT. If mqttserver is not specified, MQTT will be disabled at all (if you would like to use InfluxDB only).
 mqttqos and mqttretain sets the default, these can be overriden per meter or MeterType definition.
+
 __mqttqos__:
 - At most once (0)
 - At least once (1)
@@ -229,6 +230,8 @@ __mqttqos__:
 __mqttretain__:
 - no (0)
 - yes (1)
+
+If mqttretain is set to 1, mqtt data will only send if data has been changed since last send.
 
 ### additional options
 ```
@@ -451,7 +454,7 @@ Mandatory, name of the Meter. The name is used for InfluxDB as well as MQTT.
 ```type="NameOfMeterType"```
 Type of the Meter, mandatory if modbus queries are required. The name is case sensitive and requires the MeterType to be defined in the config file before the meter definition. In case the meter consists of formulas only, MeterType is not required.
 
-```address="SlaveAddress"```
+```address=SlaveAddress```
 Modbus slave address, mandatory if modbus queries are required.
 
 ```hostname="HostnameOfModbusSlave"```

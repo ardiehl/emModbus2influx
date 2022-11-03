@@ -110,6 +110,7 @@ void freeMeters() {
 		free(m->influxMeasurement);
 		free(m->influxTagName);
 		free(m->mqttprefix);
+		free(m->mqttLastSend);
 		if (m->sunspecIds) {
 			free(m->sunspecIds->ids);
 			free(m->sunspecIds);
@@ -256,6 +257,8 @@ int parseMeterType (parser_t * pa) {
 
 	meterType = (meterType_t *)calloc(1,sizeof(meterType_t));
 	meterType->mqttprefix = strdup(mqttprefix);
+	meterType->mqttRetain = mqttRetain;
+	meterType->mqttQOS = mqttQOS;
 	meterType->influxWriteMult = influxWriteMult;
 	parserExpect(pa,TK_EOL);  // after section
 
@@ -570,6 +573,8 @@ int parseMeter (parser_t * pa) {
 	parserExpect(pa,TK_EOL);  // after section
 	meter->influxWriteMult = influxWriteMult;
 	meter->modbusDebug = modbusDebug;
+	meter->mqttRetain = mqttRetain;
+	meter->mqttQOS = mqttQOS;
 
 	tk = parserGetToken(pa);
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));

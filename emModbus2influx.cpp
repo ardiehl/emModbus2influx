@@ -39,7 +39,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.00 Armin Diehl <ad@ardiehl.de> Apr 24,2022, compiled " __DATE__ " " __TIME__
+#define VER "1.01 Armin Diehl <ad@ardiehl.de> Nov 3,2022, compiled " __DATE__ " " __TIME__
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -441,16 +441,25 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	if (strlen(arrayName)) APPEND("]");
 
 	APPEND("}");
-	if (dryrun) {
-		printf("%s = %s\n",meter->name,buf);
-	} else {
-		mClient->topicPrefix = meter->mqttprefix;
-		rc = mqtt_pub_strF (mClient,meter->name, 0, meter->mqttQOS,meter->mqttRetain, buf);
-		if (rc != 0) LOGN(0,"mqtt publish failed with rc: %d",rc);
-		mClient->topicPrefix = NULL;
-	}
 
-	free(buf);
+    int doWrite = 1;        // if mqtt retain is send, only write if data has been changed
+    if (meter->mqttLastSend && meter->mqttRetain) {
+        if (strcmp(buf,meter->mqttLastSend) == 0) doWrite--;
+    }
+    LOGN(1,"%s: mqttretain: %d, mqttLastSend: '%s', buf: '%s', doWrite: %d",meter->name,meter->mqttRetain,meter->mqttLastSend,buf,doWrite);
+
+	if (dryrun) {
+		printf("%s = %s %s\n",meter->name,buf,doWrite ? "" : "- no change, will not be written");
+	} else {
+        if (doWrite) {
+            mClient->topicPrefix = meter->mqttprefix;
+            rc = mqtt_pub_strF (mClient,meter->name, 0, meter->mqttQOS,meter->mqttRetain, buf);
+            if (rc != 0) LOGN(0,"mqtt publish failed with rc: %d",rc);
+            mClient->topicPrefix = NULL;
+        }
+	}
+    free(meter->mqttLastSend);
+	meter->mqttLastSend = buf;
 	return rc;
 }
 
@@ -661,7 +670,7 @@ int main(int argc, char *argv[]) {
 		nextQueryTime = time(NULL) + queryIntervalSecs;
         loopCount++;
         if (dryrun) printf("- %d -----------------------------------------------------------------------\n",loopCount);
-        if (dryrun || verbose>0) clock_gettime(CLOCK_REALTIME,&timeStart);
+        clock_gettime(CLOCK_REALTIME,&timeStart);
 		rc = queryMeters(verbose);
 		setTarif (verbose);
 		clock_gettime(CLOCK_REALTIME,&timeEnd);

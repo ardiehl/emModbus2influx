@@ -230,6 +230,7 @@ struct meter_t {
 	int numEnabledRegisters_influx;
 	int mqttQOS;
 	int mqttRetain;
+	char *mqttLastSend;
 	char *mqttprefix;
 	meter_t *next;
 	int influxWriteMult;
