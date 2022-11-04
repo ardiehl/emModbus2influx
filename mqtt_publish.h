@@ -9,6 +9,7 @@ extern "C" {
 #include "MQTTClient.h"
 #include "MQTTClientPersistence.h"
 
+#define MQTT_RECONNECTED -9989864
 
 
 typedef struct {

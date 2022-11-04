@@ -39,7 +39,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.01 Armin Diehl <ad@ardiehl.de> Nov 3,2022, compiled " __DATE__ " " __TIME__
+#define VER "1.02 Armin Diehl <ad@ardiehl.de> Nov 4,2022, compiled " __DATE__ " " __TIME__
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -454,7 +454,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
         if (doWrite) {
             mClient->topicPrefix = meter->mqttprefix;
             rc = mqtt_pub_strF (mClient,meter->name, 0, meter->mqttQOS,meter->mqttRetain, buf);
-            if (rc != 0) LOGN(0,"mqtt publish failed with rc: %d",rc);
+            if (rc != MQTTCLIENT_SUCCESS && rc != MQTT_RECONNECTED) LOGN(0,"mqtt publish failed with rc: %d",rc);
             mClient->topicPrefix = NULL;
         }
 	}
@@ -708,7 +708,15 @@ int main(int argc, char *argv[]) {
 				if (dryrun) printf("Dryrun: would send to mqtt:\n");
 				meter = meters;
 				while(meter) {
-					mqttSendData (meter,dryrun);
+					rc = mqttSendData (meter,dryrun);
+					if (rc == MQTT_RECONNECTED) {
+						// we have a reconnect, force all meters to resent data
+						meter_t * meterR = meters;
+						while (meterR) {
+							free(meterR->mqttLastSend); meterR->mqttLastSend = NULL;
+							meterR = meterR->next;
+						}
+					}
 					meter = meter->next;
 				}
 
