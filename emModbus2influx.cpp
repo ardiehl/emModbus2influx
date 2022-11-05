@@ -84,6 +84,7 @@ int influxWriteMult;    // write to influx only on x th query (>=2)
 int mqttQOS;
 int mqttRetain;
 char * mqttprefix;
+char * mqttClientId;
 
 int syslogTestCallback(argParse_handleT *a, char * arg) {
 	VPRINTF(0,"%s : sending testtext via syslog\n\n",ME);
@@ -174,6 +175,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'R',"mqttport"       ,&mClient->port        ,"ip port for mqtt server")
 		AP_OPT_INTVAL       (1,'Q',"mqttqos"        ,&mqttQOS              ,"default mqtt QOS, can be changed for meter")
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
+		AP_OPT_STRVAL       (1,'i',"mqttclientid"   ,&mqttClientId         ,"mqtt client id")
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
 		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
@@ -543,8 +545,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	mqttprefix = strdup(MQTT_PREFIX_DEF);
+	mqttClientId = strdup(MQTT_CLIENT_ID);
 
-	mClient = mqtt_pub_init (NULL, 0, (char *)MQTT_CLIENT_ID, NULL);
+	mClient = mqtt_pub_init (NULL, 0, mqttClientId, NULL);
 
 	if (parseArgs(argc,argv) != 0) exit(1);
 
@@ -749,6 +752,7 @@ int main(int argc, char *argv[]) {
 
     free(configFileName);
 	free(mqttprefix);
+	free(mqttClientId);
 
 	free(influxMeasurement);
 	free(influxTagName);

@@ -1,8 +1,6 @@
 # emModbus2influx
 ## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT
 
-still work in progress, works but not yet long time tested
-
 ### Definitions
 - **MeterType** - a definition of the registers,  register types and more of a specific type of modbus slave
 - **Meter** - a definition of a physical modbus RTU or TCP slave based on a MeterType
@@ -151,6 +149,7 @@ Long command line options requires to be prefixed with -- while as in the config
   -R, --mqttport=         ip port for mqtt server (1883)
   -Q, --mqttqos=          default mqtt QOS, can be changed for meter (0)
   -r, --mqttretain=       default mqtt retain, can be changed for meter (0)
+  -i, --mqttclientid=     mqtt client id (emModbus2influx)
   -v, --verbose[=]        increase or set verbose level
   -G, --modbusdebug       set debug for libmodbus
   -P, --poll=             poll interval in seconds
@@ -217,6 +216,7 @@ mqttprefix=ad/house/energy/
 mqttport=1883
 mqttqos=0
 mqttretain=0
+mqttclientid=emModbus2influx
 ```
 
 Parameters for MQTT. If mqttserver is not specified, MQTT will be disabled at all (if you would like to use InfluxDB only).
@@ -233,9 +233,12 @@ __mqttretain__:
 
 If mqttretain is set to 1, mqtt data will only send if data has been changed since last send.
 
+__mqttclientid__:
+defaults to emModbus2influx, needs to be changed if multiple instances of emModbusinflux are accessing the same mqtt server
+
+
 ### additional options
 ```
-
 verbose=0
 syslog
 modbusdebug
@@ -466,8 +469,8 @@ The hostname for Modbus-TCP slaves. If not specified, modbus-rtu will be used. A
 ```measurement="InfluxMeasurement"```
 Overrides the default (or the value from the meter type) InfluxDB measurement for this meter.
 
-```mqttqos="```
-```mqttretain="```
+```mqttqos=```
+```mqttretain=```
 Overrides the MQTT default (or the value from the meter type) for QOS and RETAIN. Default are 0 bus can be specified via command line parameters or in the command line section of the config file. Can be set by MeterType as well.
 
 ```influxwritemult=```
@@ -484,3 +487,48 @@ disabled=0
 "u1_avg"="(Grid.u1+Grid.u2+Grid.u3)/3",dec=2,influx=1,mqtt=1
 ```
 Options supported are dec=, influx=, mqtt=, arr=, imax, imin and iavg
+# Getting started
+## Test connectivity to InfluxDB and/or MQTT
+First, check your connections to your mqtt and/or influxDB server. This can be done without a physical connection to a modbus device. We simply define a virtual device that generates random values using formulas.
+Create this sample configuration file named "emModbus2influx.conf" in the same directory where the executable file is located or point to your configuration file with the --configfile= parameter.
+```
+# Influx server (influx write disabled if no server is given)
+# server=YOUR INFLUX SERVER NASME OR IP
+
+# influxdb v1 database name
+# db=myDB
+
+# influx v1 user and password (optional)
+#user=myInfluxV1_user
+#password=myInfluxV1_password
+
+# Influxdb V2 API (do not specify db, user or password)
+# organization
+#org=YourOrg
+
+# Influx bucket to use (like db in V1)
+bucket=yourBucket
+
+# name for the tag (not the value, value equals meter name), defaults to Meter=
+# can be overridden per meter definition
+tagname=Device
+
+# access token (replaced user/password)
+token=jksfhkjsfbsfhu
+
+# MQTT
+# hostname without protocol and port
+mqttserver=your.mqtt.server
+#mqttport=1883
+mqttprefix=home/house/energy/
+
+[Meter]
+name="tempBasement_Simulation"
+"temp"="20+(rnd(10)-5)",iavg,dec=1
+```
+Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need databse, username and password, for InfluxDB 2.x you need org, bucket (like database) and an access token than has to be generated using the InfluxDB gui (via http://influxdbhost:8086 by default)
+You can now run emModbus2influx with --dryrun or --dryrun=count to see what would be posted to mqtt and/or influxDB and without --dryrun to post test data to your InfluxDB and/or MQTT.
+## Define Modbus device
+You need to know what Registers are available as well as the address and type of the register.
+to be continued...
+
