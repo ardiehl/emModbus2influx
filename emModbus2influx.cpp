@@ -47,6 +47,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #define NUM_RECS_TO_BUFFER_ON_FAILURE 1000
 
+extern double formulaNumPolls;
 char *configFileName;
 char * serDevice;
 int serBaudrate = 9600;
@@ -447,7 +448,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
     if (meter->mqttLastSend && meter->mqttRetain) {
         if (strcmp(buf,meter->mqttLastSend) == 0) doWrite--;
     }
-    LOGN(1,"%s: mqttretain: %d, mqttLastSend: '%s', buf: '%s', doWrite: %d",meter->name,meter->mqttRetain,meter->mqttLastSend,buf,doWrite);
+    LOGN(1,"%s: retain: %d, qos: %d, mqttLastSend: '%s', buf: '%s', doWrite: %d",meter->name,meter->mqttRetain,meter->mqttQOS,meter->mqttLastSend,buf,doWrite);
 
 	if (dryrun) {
 		printf("%s = %s %s\n",meter->name,buf,doWrite ? "" : "- no change, will not be written");
@@ -668,6 +669,7 @@ int main(int argc, char *argv[]) {
 
 	int loopCount = 0;
 	while (!terminated) {
+		formulaNumPolls++;
 		nextQueryTime = time(NULL) + queryIntervalSecs;
         loopCount++;
         if (dryrun) printf("- %d -----------------------------------------------------------------------\n",loopCount);

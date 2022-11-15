@@ -539,6 +539,9 @@ using namespace mu;
 
 static value_type Rnd(value_type v) { return v * std::rand() / (value_type)(RAND_MAX + 1.0); }
 
+double formulaNumPolls;
+
+
 // init the global parser and add all variables
 mu::Parser * initParser() {
     meterRegisterRead_t *registerRead;
@@ -549,6 +552,7 @@ mu::Parser * initParser() {
         parser = new (mu::Parser);
         parser-> DefineNameChars(MUPARSER_ALLOWED_CHARS);
         parser->DefineFun(_T("rnd"), Rnd, false);     // Add an unoptimizeable function
+        parser->DefineVar("__polls",&formulaNumPolls);
         // add all variables using their fully qualified name (MeterName.VariableName)
         while (meter) {
             if (meter->disabled == 0) {
