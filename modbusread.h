@@ -14,6 +14,9 @@ modbus_t ** modbusRTU_getmh();
 int modbusRTU_open (const char *device, int baud, const char *parity, int stop_bit, int mode_rs485);
 void modbusRTU_close();
 
+// delay between queries, the Modbus RTU standard describes a silent period corresponding to 3.5 characters between each message
+void modbusRTU_SilentDelay();
+
 void modbusTCP_freeAll();
 
 int queryMeter(int verboseMsg, meter_t *meter);

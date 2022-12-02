@@ -39,7 +39,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.02 Armin Diehl <ad@ardiehl.de> Nov 4,2022, compiled " __DATE__ " " __TIME__
+#define VER "1.03 Armin Diehl <ad@ardiehl.de> Dec 2,2022 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -84,6 +84,7 @@ char * influxTagName;
 int influxWriteMult;    // write to influx only on x th query (>=2)
 int mqttQOS;
 int mqttRetain;
+int mqttDelayMs;
 char * mqttprefix;
 
 int syslogTestCallback(argParse_handleT *a, char * arg) {
@@ -117,6 +118,9 @@ int showVersionCallback(argParse_handleT *a, char * arg) {
 	}
 	if (MQTTVersion)
 	printf("paho mqtt-c: %s\n",MQTTVersion);
+#ifdef __GNUC__
+    printf("        gcc: " __VERSION__ "\n");
+#endif
 	exit(2);
 }
 
@@ -174,6 +178,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_STRVAL       (1,'C',"mqttprefix"     ,&mqttprefix           ,"prefix for mqtt publish")
 		AP_OPT_INTVAL       (1,'R',"mqttport"       ,&mClient->port        ,"ip port for mqtt server")
 		AP_OPT_INTVAL       (1,'Q',"mqttqos"        ,&mqttQOS              ,"default mqtt QOS, can be changed for meter")
+		AP_OPT_INTVAL       (1,'l',"mqttdelay"      ,&mqttDelayMs          ,"delay milliseconds after mqtt publish")
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
 		AP_OPT_STRVAL       (1,'i',"mqttclientid"   ,&mClient->clientId    ,"mqtt client id")
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
@@ -462,6 +467,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	}
     free(meter->mqttLastSend);
 	meter->mqttLastSend = buf;
+	if (meter->mqttDelayMs) msleep(meter->mqttDelayMs);
 	return rc;
 }
 
@@ -587,7 +593,8 @@ int main(int argc, char *argv[]) {
 			if (rc == -1) rc = errno;
 			VPRINTFN(1,"modbus_read_registers for slave %d returned %d (%s)",i,rc,modbus_strerror(rc));
 			if (rc == 0) printf("\rfound device at id %d\n",i);
-			msleep(100);
+			modbusRTU_SilentDelay();  //
+			//msleep(25);
 		}
 		exit(0);
 	}
@@ -677,9 +684,10 @@ int main(int argc, char *argv[]) {
 		rc = queryMeters(verbose);
 		setTarif (verbose);
 		clock_gettime(CLOCK_REALTIME,&timeEnd);
-		queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
-		if (dryrun || verbose>0)
+		if (dryrun || verbose>1) {
+            queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
 			printf("Query took %4.2f seconds\n",queryTime);
+        }
 
 		if (rc >= 0) {
 			if (iClient) {		// influx
@@ -726,8 +734,11 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		if (time(NULL) >= nextQueryTime && !isFirstQuery)
-			LOGN(0,"Warning: query took more time (%1.2f seconds) than the defined poll interval of %d seconds",queryTime,queryIntervalSecs);
+		clock_gettime(CLOCK_REALTIME,&timeEnd);
+		queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+		if (queryTime > queryIntervalSecs)
+			LOGN(0,"Warning: query and post took more time (%1.2f seconds) than the defined poll interval of %d seconds",queryTime,queryIntervalSecs);
+        //printf("query and post took took %1.2f seconds\n",queryTime);
 
 		while (time(NULL) < nextQueryTime && !terminated) {
 			msleep(100);

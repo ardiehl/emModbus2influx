@@ -10,6 +10,7 @@
 
 extern int mqttQOS;
 extern int mqttRetain;
+extern int mqttDelayMs;
 extern char * mqttprefix;
 extern int influxWriteMult;    // write to influx only on x th query (>=2)
 extern int modbusDebug;
@@ -259,9 +260,9 @@ int parseMeterType (parser_t * pa) {
 	meterType->mqttprefix = strdup(mqttprefix);
 	meterType->mqttRetain = mqttRetain;
 	meterType->mqttQOS = mqttQOS;
+	meterType->mqttDelayMs = mqttDelayMs;
 	meterType->influxWriteMult = influxWriteMult;
 	parserExpect(pa,TK_EOL);  // after section
-
 	tk = parserGetToken(pa);
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
 	while (tk != TK_SECTION && tk != TK_EOF) {
@@ -290,6 +291,10 @@ int parseMeterType (parser_t * pa) {
 			case TK_MQTTRETAIN:
 				parserExpectEqual(pa,TK_INTVAL);
 				meterType->mqttRetain = pa->iVal;
+				break;
+            case TK_MQTTDELAYMS:
+				parserExpectEqual(pa,TK_INTVAL);
+				meterType->mqttDelayMs = pa->iVal;
 				break;
 			case TK_MQTT:
 				parserExpectEqual(pa,TK_INTVAL);
@@ -574,6 +579,7 @@ int parseMeter (parser_t * pa) {
 	meter->influxWriteMult = influxWriteMult;
 	meter->modbusDebug = modbusDebug;
 	meter->mqttRetain = mqttRetain;
+	meter->mqttDelayMs = mqttDelayMs;
 	meter->mqttQOS = mqttQOS;
 
 	tk = parserGetToken(pa);
@@ -614,6 +620,11 @@ int parseMeter (parser_t * pa) {
 				parserExpectEqual(pa,TK_INTVAL);
 				meter->mqttRetain = pa->iVal;
 				break;
+            case TK_MQTTDELAYMS:
+				typeConflict++;
+				parserExpectEqual(pa,TK_INTVAL);
+				meter->mqttDelayMs = pa->iVal;
+				break;
 			case TK_EOL:
 				break;
             case TK_DISABLE:
@@ -634,6 +645,7 @@ int parseMeter (parser_t * pa) {
 				}
 				meter->mqttQOS = meter->meterType->mqttQOS;
 				meter->mqttRetain = meter->meterType->mqttRetain;
+				meter->mqttDelayMs = meter->meterType->mqttDelayMs;
 				meter->influxWriteMult = meter->meterType->influxWriteMult;
 				if (meter->meterType->influxMeasurement) {
 					free(meter->influxMeasurement);
@@ -976,6 +988,7 @@ int readMeterDefinitions (const char * configFileName) {
         "influx"          ,TK_INFLUX,
         "mqttqos"	      ,TK_MQTTQOS,
 		"mqttretain"      ,TK_MQTTRETAIN,
+		"mqttdelayms"     ,TK_MQTTDELAYMS,
 		"mqttprefix"      ,TK_MQTTPREFIX,
 		"influxwritemult" ,TK_INFLUXWRITEMULT,
 		"imax"            ,TK_IMAX,

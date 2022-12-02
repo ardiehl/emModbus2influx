@@ -146,9 +146,13 @@ modbus_t ** modbusRTU_getmh() {
 	return &mb_RTU;
 }
 
+int modbusRTU_Baudrate;
+
 int modbusRTU_open (const char *device, int baud, const char *parity, int stop_bit, int mode_rs485) {
 	char par;
 	int res;
+
+	modbusRTU_Baudrate = baud;
 
 	if (parity == NULL) par = 'O'; else {
 		par = toupper(*parity);
@@ -185,6 +189,30 @@ void modbusRTU_close() {
 	}
 }
 
+// delay between queries, the Modbus RTU standard describes a silent period corresponding to 3.5 characters between each message
+// with my meters @9600 baud a delay of > 21ms is required so use a larger delay here
+void modbusRTU_SilentDelay() {
+    int delay = 16;
+    switch (modbusRTU_Baudrate) {
+        //case 2400:
+        //    delay = 16;
+        //    break;
+        case 4800:
+            delay = 50;
+            break;
+        case 9600:
+            delay = 25;
+            break;
+        case 19200:
+            delay = 13;
+            break;
+        case 38400:
+            delay = 7;
+            break;
+    }
+    //printf("modbusRTU_SilentDelay %d ms\n",delay);
+    msleep(delay);
+}
 
 void dumpBuffer (const uint16_t *data,int numValues) {
 	while (numValues) {
@@ -999,7 +1027,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			EPRINTFN("%s: connect to %s:%d failed, will retry later",meter->name,meter->hostname,meter->port);
 			return -555;
 		}
-	} else msleep(50);
+	} //else msleep(50);
 	modbus_set_debug(*meter->mb,meter->modbusDebug);
     modbus_set_slave(*meter->mb,meter->modbusAddress);
 
@@ -1189,7 +1217,10 @@ int queryMeters(int verboseMsg) {
 	//  query
 	meter = meters;
 	while (meter) {
-		if (! meter->isTCP) msleep(100);
+        if (! meter->disabled && ! meter->isTCP && meter->meterType) {  // not needed for IP or formula only meters
+            if (meter->meterType->meterReads) modbusRTU_SilentDelay();
+        }
+
 		res = queryMeter(verboseMsg,meter);
 		if (res != 0) {
 			EPRINTFN("%s: query failed",meter->name);

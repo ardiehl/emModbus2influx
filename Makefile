@@ -31,7 +31,7 @@ SYSTEMD_RELOAD = systemctl daemon-reload
 
 ALLTARGETS = $(TARGETS:=$(TGT))
 
-CPPFLAGS = -fPIE -g0 -Os -Wall -g -Imqtt$(TGT)/include -DSML_NO_UUID_LIB
+CPPFLAGS = -fPIE -g0 -O3 -Wall -g -Imqtt$(TGT)/include -DSML_NO_UUID_LIB
 
 # auto generate dependency files
 CPPFLAGS += -MMD

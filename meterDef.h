@@ -72,11 +72,12 @@
 #define TK_DISABLE         615
 #define TK_MQTTQOS		   616
 #define TK_MQTTRETAIN      617
-#define TK_INFLUXWRITEMULT 618
-#define TK_IMAX            619
-#define TK_IMIN            620
-#define TK_IAVG            621
-#define TK_MODBUSDEBUG     622
+#define TK_MQTTDELAYMS     618
+#define TK_INFLUXWRITEMULT 619
+#define TK_IMAX            620
+#define TK_IMIN            621
+#define TK_IAVG            622
+#define TK_MODBUSDEBUG     623
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -163,6 +164,7 @@ struct meterType_t {
 	meterInit_t * setTarif[TARIF_MAX];
 	int mqttQOS;
 	int mqttRetain;
+	int mqttDelayMs;
 	meterType_t *next;
 	char *mqttprefix;
 	char * influxMeasurement;
@@ -230,6 +232,7 @@ struct meter_t {
 	int numEnabledRegisters_influx;
 	int mqttQOS;
 	int mqttRetain;
+	int mqttDelayMs;
 	char *mqttLastSend;
 	char *mqttprefix;
 	meter_t *next;
