@@ -118,7 +118,7 @@ type="Fronuis_Symo"
 ```
 If emModbus2Influx is started with --baud=19200 the 9600 baud in the config file will be ignored.
 Comments can be included using #. Everything after # in a line will be ignored.
-Numbers can be specified decimal or, when prefixwed with 0x, hexadecimal.
+Numbers can be specified decimal or, when prefixed with 0x, hexadecimal.
 
 ## command line options or options in the first section of the config file
 
@@ -173,7 +173,8 @@ stopbits=1
 rs485=0
 ```
 
-Specify the serial port parameters, defaults are shown above. Parity can be N for none, E for even or O for odd.
+Specify the serial port parameters, defaults are shown above.  
+__parity__ can be N for none, E for even or O for odd.
 
 ### InfluxDB - common for version 1 and 2
 
@@ -185,8 +186,11 @@ tagname=Meter
 cache=1000
 ```
 
-If server is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT only). tagname will be the tag used for posting to Influxdb. Cache is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.
-measurement sets the default measurement and can be overriden in a meter type or in a meter definition.
+If __server__ is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT only).  
+tagname will be the tag used for posting to Influxdb.  
+__port__ is the IP port number and defaults to 8086  
+__cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.  
+__measurement__ sets the default measurement and can be overriden in a meter type or in a meter definition.
 
 ### InfluxDB version 1
 
@@ -203,9 +207,9 @@ password=
 Version 2 requires bucket, org and token:
 
 ```
---bucket=
---org=
---token=
+bucket=
+org=
+token=
 ```
 
 ### MQTT
@@ -245,10 +249,10 @@ modbusdebug
 poll=5
 ```
 
-__verbose__: sets the verbisity level
-__syslog__: enables messages to syslog instead of stdout.
-__modbusdebug__: enables debug output for libmodbus, can also be specified per meter
-__poll__: sets the poll interval in seconds
+__verbose__: sets the verbisity level  
+__syslog__: enables messages to syslog instead of stdout  
+__modbusdebug__: enables debug output for libmodbus, can also be specified per meter  
+__poll__: sets the poll interval in seconds  
 
 ### command line only parameters
 
@@ -263,17 +267,17 @@ __poll__: sets the poll interval in seconds
 --formtry
 --scanrtu
 ```
-__configfile__: sets the config file to use, default is ./emModbus2influx.conf
-**syslogtest**: sends a test message to syslog.
-**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT
-**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT
-**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.
-**formtryt**: interactively try out a formula for a MeterType
-**formtry**: interactively try out a formula for a Meter
+__configfile__: sets the config file to use, default is ./emModbus2influx.conf  
+**syslogtest**: sends a test message to syslog.  
+**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT  
+**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT  
+**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.  
+**formtryt**: interactively try out a formula for a MeterType  
+**formtry**: interactively try out a formula for a Meter  
 
 ## Some words about SunSpec
 
-For standard mobus slaves, the register addresses are fixed, however, this is not the case for [SunSpec](https://sunspec.org/) devices. For SunSpec there is a start address (defaults to 40000) pointing to the first block. Each block has an id and a length, the length may vary depending on firmware versions. Register addresses will be specified as an offset within a block.
+For standard mobus slaves, the register addresses are fixed, however, this is not the case for [SunSpec](https://sunspec.org/) devices. For SunSpec there is a start address (defaults to 40000) pointing to the first block. Each block has an id and a length, the length may vary depending on firmware versions. Register addresses will be specified as an offset within a block.  
 emModbus2Influx will resolve the block relative register addresses to absolute addresses at the first query. Therefore if you install a firmware update of aSunSpec device, it may me necessary to restart emModbus2Influx in case some block lengths have been changed by the manufacturer.
 
 
@@ -316,9 +320,9 @@ Mandatory, name of the MeterType. The name is used in a meter definition and is 
 
 ```read=start,numRegs```
 Optional: non SunSpec, specifies to read numReg (16 bit) registers starting at 'start'. After each read= statement, emModbus2Influx will try to map the reading data to the required registers. This is to avoid unnecessary reads especially for TCP.
-If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slowdown the overall read process.
-There is no limit in the number of read= specified in the config file. After each read= has been performed, emModbus2Influx will try to map the data received by read= to the defined registers. In case there are remaining registers not mapped, single read commands for these registers will be performed.
-To make sure all registers are covered by read= stements, start emModbus2influx with dryrun and verbosity level 1:
+If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slowdown the overall read process.  
+In case there are remaining registers not mapped, single read commands for these registers will be performed.  
+There is no limit in the number of read= specified in the config file. To make sure all registers are covered by read= stements, start emModbus2influx with dryrun and verbosity level 1:
 ```
 ./emModbus2influx --dryrun --configfile=config_01.conf -v1
 Influx init: serverName: lnx.armin.d, port 8086, dbName: (null), userName: (null), password: (null), org: diehl, bucket:test, numQueueEntries 1000
@@ -376,19 +380,20 @@ Enables libmodbus debug output for this meter.
 ### Register definitions within MeterTypes
 
 
-for each register,
-```"name"=startRegisterNumber_or_SunspecOffset```
- or
- ```"name"="Formula"```
- has to be specified. Registers of this MeterType can be referenced within formulas by using its name, the following sample calculates the maximum of each phase voltage and saves the result in the new register uMax:
+for each register,  
+```"RegisterName"=startRegisterNumber_or_SunspecOffset```  
+ or  
+ ```"name"="Formula"```  
+ has to be specified.  
+Registers of this MeterType can be referenced within formulas by using its name, the following sample calculates the maximum of each phase voltage and saves the result in the new register uMax:
 ```
 "uMax"="max(u1,u2,3)"
 ```
  Additional, optional parameters may be specified (separated by comma). If no data type is specified, int16 will be assumed. A name must be specified with quotes to be able to use reserved words like "name". Example:
  ```
 "p1" = 0x0012,int32,arr="p",dec=0,div=10,imax
-"p2" = 0x0012,int32,arr="p",dec=0,div=10,imax
-"p3" = 0x0012,int32,array="p",dec=0,div=10,imax
+"p2" = 0x0014,int32,arr="p",dec=0,div=10,imax
+"p3" = 0x0016,int32,array="p",dec=0,div=10,imax
 "p" = "p1+p2+p3",float,influx=0,iavg
 "kwh"=0x0040,int32,force=int,div=10,imax
 ```
@@ -396,16 +401,16 @@ for each register,
 #### Options
 Options - data types
 
- - float         - Floating point format (IEEE 754) = abcd
- - floatabcd,floatbacd, floatcdab Floating point in different byte order
- - int int16	- integer 16 bit
- - int32	- integer 32 bit
- - int48         - integer 48 bit
- - int64         - integer 64 bit
- - uint uint16   - unsigned integer 16 bit
- - uint32        - unsigned integer 32 bit
- - uint48        - unsigned integer 48 bit
- - uint64        - unsigned integer 64 bit (only 63 bits will be stored)
+ - _ _float_ _         - Floating point format (IEEE 754) = abcd
+ - _ _floatabcd,floatbacd, floatcdab_ _ Floating point in different byte order
+ - _ _int_ _ _ _int16_ _	- integer 16 bit
+ - _ _int32_ _	- integer 32 bit
+ - _ _int48_ _         - integer 48 bit
+ - _ _int64_ _         - integer 64 bit
+ - _ _uint_ _ _ _uint16_ _   - unsigned integer 16 bit
+ - _ _uint32_ _        - unsigned integer 32 bit
+ - _ _uint48_ _        - unsigned integer 48 bit
+ - _ _uint64_ _        - unsigned integer 64 bit (only 63 bits will be stored)
 
 ```arr=name```
 
@@ -526,9 +531,9 @@ mqttprefix=home/house/energy/
 name="tempBasement_Simulation"
 "temp"="20+(rnd(10)-5)",iavg,dec=1
 ```
-Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need databse, username and password, for InfluxDB 2.x you need org, bucket (like database) and an access token than has to be generated using the InfluxDB gui (via http://influxdbhost:8086 by default)
+Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need database, username and password, for InfluxDB 2.x you need org, bucket (like database) and an access token than has to be generated using the InfluxDB gui (via http://influxdbhost:8086 by default)  
 You can now run emModbus2influx with --dryrun or --dryrun=count to see what would be posted to mqtt and/or influxDB and without --dryrun to post test data to your InfluxDB and/or MQTT.
 ## Define Modbus device
 You need to know what Registers are available as well as the address and type of the register.
-to be continued...
+See the included emModbus2influx.conf for samples of several devices.
 
