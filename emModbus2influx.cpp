@@ -384,6 +384,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	char *arrayName;
 	char emptyStr = 0;
 	int rc = 0;
+	char *measurement;
 
 	// check if we have something to write
 	if (meter->disabled) return 0;
@@ -394,7 +395,15 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	*buf=0;
 
 	arrayName = &emptyStr;
-	APPEND("{");
+	APPEND("{\"name\":\"");
+	measurement = meter->influxMeasurement;
+	if (! measurement) measurement = influxMeasurement;
+	if (measurement) {
+		APPEND(measurement); APPEND(".");
+	}
+	APPEND(meter->name);
+	APPEND("\", ");
+
 	// registers from meter type
 	while (rr) {
         if (rr->registerDef->enableMqttWrite) {
