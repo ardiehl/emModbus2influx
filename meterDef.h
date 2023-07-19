@@ -154,6 +154,7 @@ struct meterRegister_t {
 typedef struct meterType_t meterType_t;
 struct meterType_t {
 	char *name;
+	int isFormulaOnly;  // 1 when no modbus read will be performed
 	meterRead_t *meterReads;
 	meterRegister_t *meterRegisters;
 	int numEnabledRegisters_mqtt;

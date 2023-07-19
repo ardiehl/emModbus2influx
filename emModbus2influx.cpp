@@ -39,7 +39,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.03 Armin Diehl <ad@ardiehl.de> Dec 2,2022 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.05 Armin Diehl <ad@ardiehl.de> Jul 19,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -504,7 +504,7 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
     rr = meter->registerRead;
 	while (rr) {
         if (rr->registerDef->enableInfluxWrite) {
-            if (rr->isInt) {
+            if (rr->isInt || rr->registerDef->forceType == force_int) {
                 influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
                 if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
             } else {
@@ -698,6 +698,7 @@ int main(int argc, char *argv[]) {
 			printf("Query took %4.2f seconds\n",queryTime);
         }
 
+        int influxLines = 0;
 		if (rc >= 0) {
 			if (iClient) {		// influx
 				influxBufUsed = 0; influxBuf=NULL;
@@ -705,7 +706,10 @@ int main(int argc, char *argv[]) {
 				meter = meters;
 				while(meter) {
                     if(meter->influxWriteCountdown == 0) {
-                        influxAppendData (meter, influxTimestamp);
+						if (meter->meterHasBeenRead) {
+							influxAppendData (meter, influxTimestamp);
+							influxLines++;
+						}
                         meter->influxWriteCountdown = meter->influxWriteMult;
                     }
 					meter = meter->next;
@@ -715,10 +719,14 @@ int main(int argc, char *argv[]) {
 					free(influxBuf); influxBuf = NULL;
 				} else {
 					if (influxBuf) {
-						rc = influxdb_post_http_line(iClient, influxBuf);
-						influxBuf=NULL;
-						if (rc != 0) {
-							LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
+						if (influxLines == 0) {
+							free(influxBuf); influxBuf = NULL;
+						} else {
+							rc = influxdb_post_http_line(iClient, influxBuf);
+							influxBuf=NULL;
+							if (rc != 0) {
+								LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
+							}
 						}
 					}
 				}
@@ -728,13 +736,15 @@ int main(int argc, char *argv[]) {
 				if (dryrun) printf("Dryrun: would send to mqtt:\n");
 				meter = meters;
 				while(meter) {
-					rc = mqttSendData (meter,dryrun);
-					if (rc == MQTT_RECONNECTED) {
-						// we have a reconnect, force all meters to resent data
-						meter_t * meterR = meters;
-						while (meterR) {
-							free(meterR->mqttLastSend); meterR->mqttLastSend = NULL;
-							meterR = meterR->next;
+					if (meter->meterHasBeenRead) {
+						rc = mqttSendData (meter,dryrun);
+						if (rc == MQTT_RECONNECTED) {
+							// we have a reconnect, force all meters to resent data
+							meter_t * meterR = meters;
+							while (meterR) {
+								free(meterR->mqttLastSend); meterR->mqttLastSend = NULL;
+								meterR = meterR->next;
+							}
 						}
 					}
 					meter = meter->next;

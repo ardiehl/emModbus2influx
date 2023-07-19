@@ -1035,6 +1035,8 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	// reset read flags
 	meter->meterHasBeenRead = 0;
 
+	if (meter->meterType->isFormulaOnly) meter->meterHasBeenRead++;
+
 	meterRegisterRead = meter->registerRead;
 	while (meterRegisterRead) {
 		meterRegisterRead->hasBeenRead = 0;

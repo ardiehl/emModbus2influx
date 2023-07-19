@@ -555,6 +555,13 @@ int parseMeterType (parser_t * pa) {
 
 	if (!meterType->meterReads) fprintf(stderr,"\"%s\": Warning: no meter reads, form a performance point of view, meter reads should be defined to avoid single register reads\n",meterType->name);
 
+	meterType->isFormulaOnly = 1;
+	meterRegister = meterType->meterRegisters;
+	while (meterRegister) {
+			if (! meterRegister->isFormulaOnly) meterType->isFormulaOnly = 0;
+			meterRegister = meterRegister->next;
+	}
+
 	// store meter type
 	if (meterTypes) {
 		meterType_t * mt = meterTypes;
