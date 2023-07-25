@@ -8,7 +8,7 @@
 It is named meter because it was originally used to query energy meters but in fact it can query any modbus slave. I'm using it for energy meters, Fronius solar inverters as well as Victron Energy GX.
 ### Features
 
- - modbus RTU via one serial port (if you need more serial ports, you can start emModbus2Influx multiple times)
+ - modbus RTU via serial port (multiple serial ports are supported as well)
  - unlimited number of metertypes and meters
  - supports SUNSPEC meter definitions (tested with Fronius Symo)
  - supports formulas for changing values after read or for defining new fields (in the metertype as well as in the meter definition)
@@ -107,7 +107,8 @@ read=0x130,38
 disabled=0
 address=11	# modbus RTU address of meter
 type="DRT428M_3"
-name="EnteryMeter1"
+name="EnergyMeter1"
+serial=0                        # use the first defined serial port
 
 [Meter]
 disabled=0
@@ -127,11 +128,11 @@ Long command line options requires to be prefixed with -- while as in the config
 ```
   -h, --help              show this help and exit
   --configfile=           config file name
-  -d, --device=           specify serial device name
-  --baud=                 baudrate (9600)
+  -d, --device=           specify serial device names separated by ,
+  --baud=                 baudrates separated by , (9600)
   -a, --parity=           N (default), E or O (e)
   -S, --stopbits=         1 or 2 stopbits (1)
-  -4, --rs485=            set rs485 mode (0)
+  -4, --rs485=            set rs485 mode
   -m, --measurement=      Influxdb measurement (energyMeter)
   -g, --tagname=          Influxdb tag name (Device)
   -s, --server=           influxdb server name or ip (lnx.armin.d)
@@ -139,7 +140,7 @@ Long command line options requires to be prefixed with -- while as in the config
   -b, --db=               Influxdb v1 database name
   -u, --user=             Influxdb v1 user name
   -p, --password=         Influxdb v1 password
-  -B, --bucket=           Influxdb v2 bucket (test)
+  -B, --bucket=           Influxdb v2 bucket (ad)
   -O, --org=              Influxdb v2 org (diehl)
   -T, --token=            Influxdb v2 auth api token
   --influxwritemult=      Influx write multiplicator
@@ -148,11 +149,12 @@ Long command line options requires to be prefixed with -- while as in the config
   -C, --mqttprefix=       prefix for mqtt publish (ad/house/energy/)
   -R, --mqttport=         ip port for mqtt server (1883)
   -Q, --mqttqos=          default mqtt QOS, can be changed for meter (0)
-  -r, --mqttretain=       default mqtt retain, can be changed for meter (0)
+  -l, --mqttdelay=        delay milliseconds after mqtt publish (0)
+  -r, --mqttretain=       default mqtt retain, can be changed for meter (1)
   -i, --mqttclientid=     mqtt client id (emModbus2influx)
   -v, --verbose[=]        increase or set verbose level
   -G, --modbusdebug       set debug for libmodbus
-  -P, --poll=             poll interval in seconds
+  -P, --poll=             poll intervall in seconds
   -y, --syslog            log to syslog insead of stderr
   -Y, --syslogtest        send a testtext to syslog and exit
   -e, --version           show version and exit
@@ -173,8 +175,17 @@ stopbits=1
 rs485=0
 ```
 
-Specify the serial port parameters, defaults are shown above.  
+Specify the serial port parameters, defaults are shown above.
 __parity__ can be N for none, E for even or O for odd.
+
+If more than one serial ports is used, comma is to be used to separate parameters, e.g.
+```
+device=/dev/ttyUSB_energyMeters,/dev/ttyUSB_tempSensors,/dev/tty/USB3
+baud=9600,2400
+rs485=0,0,1
+```
+The first serial port is serial0 and is the default for serial= in a meter definition.
+In case serial parameters are not specified for ports >0, the ones for serial0 are used, in the example 9600 baud will be used for USB3.
 
 ### InfluxDB - common for version 1 and 2
 

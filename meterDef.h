@@ -78,6 +78,7 @@
 #define TK_IMIN            621
 #define TK_IAVG            622
 #define TK_MODBUSDEBUG     623
+#define TK_SERIAL          624
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -223,6 +224,8 @@ struct meter_t {
 	int isTCP;
 	char *hostname;
 	char *port;
+	int serialPortNum;
+	int baudrate;
 	char * influxMeasurement;
 	char * influxTagName;
 	int needSunspecResolve;

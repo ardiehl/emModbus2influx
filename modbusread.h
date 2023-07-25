@@ -10,12 +10,20 @@
 
 int msleep(long msec);
 
-modbus_t ** modbusRTU_getmh();
-int modbusRTU_open (const char *device, int baud, const char *parity, int stop_bit, int mode_rs485);
-void modbusRTU_close();
+// multiple devices can be separated by ,
+// first device is number 0 and is the default device
+int meterSerialScanDevice (char * deviceString);
+int meterSerialScanBaudrate (char * baudString);
+int meterSerialScanParity (char * parityString);
+int meterSerialScanrs485 (char * rs485String);
+int meterSerialScanStopbits (char * stopString);
+int meterSerialOpen ();
+void meterSerialClose ();
 
+modbus_t ** modbusRTU_getmh(int serialPortNum);
+int modbusRTU_getBaudrate(int serialPortNum);
 // delay between queries, the Modbus RTU standard describes a silent period corresponding to 3.5 characters between each message
-void modbusRTU_SilentDelay();
+void modbusRTU_SilentDelay(int baudrate);
 
 void modbusTCP_freeAll();
 

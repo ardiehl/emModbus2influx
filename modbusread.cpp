@@ -28,7 +28,6 @@
 #define LIGHTMODBUS_DEBUG
 #define LIGHTMODBUS_IMPL
 
-modbus_t *mb_RTU;
 
 typedef struct meterIPConnection_t meterIPConnection_t;
 struct meterIPConnection_t {
@@ -142,58 +141,285 @@ int msleep(long msec)
 
 //*****************************************************************************
 
-modbus_t ** modbusRTU_getmh() {
-	return &mb_RTU;
+
+typedef struct meterSerialConnection_t meterSerialConnection_t;
+struct meterSerialConnection_t {
+	char * device;
+	int baudrate;
+	char parity;		// E, O or N
+	modbus_t *mb;
+	int rs485;
+	int isConnected;
+	int stopBits;
+	meterSerialConnection_t *next;
+};
+
+meterSerialConnection_t * meterSerialConnections;
+int numSerialConnections;
+
+
+meterSerialConnection_t * newMeterSerialConnection() {
+		meterSerialConnection_t * sc;
+		sc = (meterSerialConnection_t *)calloc(1,sizeof(meterSerialConnection_t));
+		numSerialConnections++;
+		if (! meterSerialConnections) {
+			sc->baudrate = 9600;
+			sc->stopBits = 1;
+			sc->parity = 'E';
+			meterSerialConnections = sc;
+			return sc;
+		}
+		meterSerialConnection_t * sc_last = meterSerialConnections;
+		while (sc_last->next != 0) sc_last = sc_last->next;
+		sc_last->next = sc;
+		// use the values for the first port as default
+		sc->baudrate = meterSerialConnections->baudrate;
+		sc->parity = meterSerialConnections->parity;
+		sc->stopBits = meterSerialConnections->stopBits;
+		sc->rs485 = meterSerialConnections->rs485;
+		return sc;
 }
 
-int modbusRTU_Baudrate;
 
-int modbusRTU_open (const char *device, int baud, const char *parity, int stop_bit, int mode_rs485) {
-	char par;
+void meterSerialClose () {
+	if (! meterSerialConnections) return;
+
+	meterSerialConnection_t * sc = meterSerialConnections;
+	while (sc) {
+		modbus_free(sc->mb);
+		sc->mb = NULL;
+		sc->isConnected = 0;
+		sc=sc->next;
+	}
+}
+
+int meterSerialOpen () {
 	int res;
+	int serialPortNum;
 
-	modbusRTU_Baudrate = baud;
+	if (! meterSerialConnections) return 0;
 
-	if (parity == NULL) par = 'O'; else {
-		par = toupper(*parity);
-		if (par != 'O' && par != 'N' && par != 'E') {
-			EPRINTFN("Invalid parity (%s) specified, valid is O,N or E",parity);
-			exit (1);
+	meterSerialConnection_t * sc;
+	if (verbose > 1) {
+		sc = meterSerialConnections;
+		serialPortNum = 0;
+		EPRINTFN("defined serial ports:");
+		while (sc) {
+			printf(" %2d: %6d 8%c%d rs485:%d - %s\n",serialPortNum,sc->baudrate,sc->parity,sc->stopBits,sc->rs485,sc->device);
+			serialPortNum++;
+			sc = sc->next;
 		}
+		printf("\n");
 	}
-	mb_RTU = modbus_new_rtu(device, baud, par, 8, stop_bit);
-	if (mb_RTU == NULL) return -1;
-	res = modbus_connect(mb_RTU);
-	if (res == -1) {
-		EPRINTFN("modbus_connect failed: %d - %s", errno,modbus_strerror(errno));
-		modbus_free(mb_RTU);
-		mb_RTU = NULL;
-		return -1;
-	}
-	modbus_set_error_recovery(mb_RTU, MODBUS_ERROR_RECOVERY_PROTOCOL);
-	if (mode_rs485)
-	    res = modbus_rtu_set_serial_mode(mb_RTU, MODBUS_RTU_RS485);
-	else
-        res = modbus_rtu_set_serial_mode(mb_RTU, MODBUS_RTU_RS232);
-    if (res != 0) EPRINTFN("Warning: modbus_rtu_set_serial_mode failed with %d (%s)", res, modbus_strerror(errno));
 
-	VPRINTFN(7,"modbusRTU_open: %s opened (%d 8%c%d)",device,baud,par,stop_bit);
+	serialPortNum = 0;
+	sc = meterSerialConnections;
+	while (sc) {
+
+		int noDevice = 0;
+		if (!sc->device) noDevice++; else if (*sc->device == 0) noDevice++;
+		if (noDevice) {
+			EPRINTFN("Warning Serial%d: no device specified",serialPortNum);
+		} else {
+			sc->mb = modbus_new_rtu(sc->device, sc->baudrate, sc->parity, 8, sc->stopBits);
+			if (sc->mb == NULL) return 0;
+			res = modbus_connect(sc->mb);
+			if (res == -1) {
+				EPRINTFN("modbus_connect (%s) failed: %d - %s", sc->device, errno,modbus_strerror(errno));
+				modbus_free(sc->mb);
+				sc->mb = NULL;
+				return 1;
+			}
+			modbus_set_error_recovery(sc->mb, MODBUS_ERROR_RECOVERY_PROTOCOL);
+			if (sc->rs485) {
+				res = modbus_rtu_set_serial_mode(sc->mb, MODBUS_RTU_RS485);
+				if (res != 0) EPRINTFN("Serial%d (%s) Warning: modbus_rtu_set_serial_mode (MODBUS_RTU_RS485) failed with %d (%s)", serialPortNum,sc->device, res, modbus_strerror(errno));
+			} else {
+				res = modbus_rtu_set_serial_mode(sc->mb, MODBUS_RTU_RS232);
+				if (res != 0) EPRINTFN("Serial%d (%s) Warning: modbus_rtu_set_serial_mode (MODBUS_RTU_RS232) failed with %d (%s)", serialPortNum,sc->device, res, modbus_strerror(errno));
+			}
+
+			sc->isConnected = 1;
+		}
+		sc = sc->next;
+		serialPortNum++;
+	}
 	return 0;
 }
 
 
-void modbusRTU_close() {
-	if (mb_RTU) {
-		modbus_free(mb_RTU);
-		mb_RTU = NULL;
+int meterSerialScanDevice (char * deviceString) {
+	char * device;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	printf("Dev (%s)\n",deviceString);
+	if (! deviceString) return 0;
+	device = strtok (deviceString, ",");
+	while (device) {
+		printf("Device: \"%s\"\n",device);
+		if (! sc) sc = newMeterSerialConnection();
+		if (*device != 0) sc->device = strdup(device);
+		device = strtok (NULL, ",");
+		if (device) {
+			if (sc->next) sc = sc->next; else sc = newMeterSerialConnection();
+		}
 	}
+	return 0;
 }
+
+
+int meterSerialScanBaudrate (char * baudString) {
+	char * s;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	if (! baudString) return 0;
+	s = strtok (baudString, ",");
+	while (s) {
+		if (! sc) sc = newMeterSerialConnection();
+		if (*s != 0) {
+			sc->baudrate = strtol (s,NULL,10);
+			if (errno) {
+				EPRINTFN("'%s' is not a valid baudrate",s);
+				return 1;
+			}
+		}
+		s = strtok (NULL, ",");
+		if (s) {
+			if (sc->next) sc = sc->next; else sc = newMeterSerialConnection();
+		}
+	}
+	return 0;
+}
+
+
+
+int meterSerialScanParity (char * parityString) {
+	char * s;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	if (! parityString) return 0;
+	s = strtok (parityString, ",");
+	while (s) {
+		if (! sc) sc = newMeterSerialConnection();
+		if (*s != 0) {
+			sc->parity = toupper(*s);
+			if (sc->parity != 'O' && sc->parity != 'E' && sc->parity != 'N') {
+				EPRINTFN("Invalid parity (%c) specified, valid is O,N or E",sc->parity);
+				return 1;
+			}
+		}
+		s = strtok (NULL, ",");
+		if (s) {
+			if (sc->next) sc = sc->next; else sc = newMeterSerialConnection();
+		}
+	}
+	return 0;
+}
+
+
+int meterSerialScanrs485 (char * rs485String) {
+	char * s;
+	char c;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	if (! rs485String) return 0;
+	s = strtok (rs485String, ",");
+	while (s) {
+		if (! sc) sc = newMeterSerialConnection();
+		if (*s != 0) {
+			c = toupper(*s);
+			if (c != '0' && c != '1') {
+				EPRINTFN("Invalid rs485 value (%s) specified, valid is 0 or 1",s);
+				return 1;
+			}
+			if (c == '1') sc->rs485=1;
+		}
+		s = strtok (NULL, ",");
+		if (s) {
+			if (sc->next) sc = sc->next; else sc = newMeterSerialConnection();
+		}
+	}
+	return 0;
+}
+
+
+int meterSerialScanStopbits (char * stopString) {
+	char * s;
+	char c;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	if (! stopString) return 0;
+	s = strtok (stopString, ",");
+	while (s) {
+		if (! sc) sc = newMeterSerialConnection();
+		if (*s != 0) {
+			c = toupper(*s);
+			if (c != '1' && c != '2') {
+				EPRINTFN("Invalid stopbit value (%s) specified, valid is 1 or 2",s);
+				return 1;
+			}
+			if (c == '1') sc->stopBits=1; else sc->stopBits=2;
+		}
+		s = strtok (NULL, ",");
+		if (s) {
+			if (sc->next) sc = sc->next; else sc = newMeterSerialConnection();
+		}
+	}
+	return 0;
+}
+
+
+
+modbus_t ** modbusRTU_getmh(int serialPortNum) {
+	meterSerialConnection_t *sc = meterSerialConnections;
+	if (! sc) {
+		EPRINTFN("modbusRTU_getmh(): no serial ports defined");
+		exit(3);
+	}
+	int n = 0;
+	while (sc) {
+		if (serialPortNum == n) {
+			if (! meterSerialConnections->isConnected) {
+				EPRINTFN("modbusRTU_getmh(): Serial%d not defined",serialPortNum);
+				exit(3);
+			}
+			return &sc->mb;
+		}
+		sc = sc->next;
+	}
+	EPRINTFN("modbusRTU_getmh(): Serial%d not specified",serialPortNum);
+	exit(3);
+}
+
+
+int modbusRTU_getBaudrate(int serialPortNum) {
+	meterSerialConnection_t *sc = meterSerialConnections;
+	if (! sc) {
+		EPRINTFN("modbusRTU_getBaudrate(%d): no serial ports defined",serialPortNum);
+		exit(3);
+	}
+	int n = 0;
+	while (sc) {
+		if (serialPortNum == n) {
+			if (! meterSerialConnections->isConnected) {
+				EPRINTFN("modbusRTU_getBaudrate(): Serial%d not defined",serialPortNum);
+				exit(3);
+			}
+			return sc->baudrate;
+		}
+		sc = sc->next;
+	}
+	EPRINTFN("modbusRTU_getBaudrate(): Serial%d not specified",serialPortNum);
+	exit(3);
+}
+
+
 
 // delay between queries, the Modbus RTU standard describes a silent period corresponding to 3.5 characters between each message
 // with my meters @9600 baud a delay of > 21ms is required so use a larger delay here
-void modbusRTU_SilentDelay() {
+void modbusRTU_SilentDelay(int baudrate) {
     int delay = 16;
-    switch (modbusRTU_Baudrate) {
+    switch (baudrate) {
         //case 2400:
         //    delay = 16;
         //    break;
@@ -1016,7 +1242,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	if (verboseMsg) {
         if (verboseMsg > 1) printf("\n");
 		if (meter->hostname) printf("Query \"%s\" @ TCP %s:%s, Modbus address %d\n",meter->name,meter->hostname,meter->port == NULL ? "502" : meter->port,meter->modbusAddress);
-		else printf("Query \"%s\" @ ModbusRTU address %d\n",meter->name,meter->modbusAddress);
+		else printf("Query \"%s\" @ ModbusRTU address %d on Serial%d\n",meter->name,meter->modbusAddress,meter->serialPortNum);
 	} else
 		VPRINTFN(8,"%s: queryMeter Modbus address %d",meter->name,meter->modbusAddress);
 
@@ -1220,7 +1446,7 @@ int queryMeters(int verboseMsg) {
 	meter = meters;
 	while (meter) {
         if (! meter->disabled && ! meter->isTCP && meter->meterType) {  // not needed for IP or formula only meters
-            if (meter->meterType->meterReads) modbusRTU_SilentDelay();
+            if (meter->meterType->meterReads) modbusRTU_SilentDelay(meter->baudrate);
         }
 
 		res = queryMeter(verboseMsg,meter);

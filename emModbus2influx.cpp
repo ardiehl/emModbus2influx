@@ -39,7 +39,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.05 Armin Diehl <ad@ardiehl.de> Jul 19,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.06 Armin Diehl <ad@ardiehl.de> Jul 24,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -50,10 +50,10 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 extern double formulaNumPolls;
 char *configFileName;
 char * serDevice;
-int serBaudrate = 9600;
+char * serBaudrate;
 char *serParity;
-int serStopbits;
-int ser_rs485;
+char *serStopbits;
+char * ser_rs485;
 int dumpRegisters;
 int dryrun;
 int queryIntervalSecs = 5;	// seconds
@@ -149,17 +149,18 @@ int parseArgs (int argc, char **argv) {
 
 	influxMeasurement = strdup(INFLUX_DEFAULT_MEASUREMENT);
 	influxTagName = strdup(INFLUX_DEFAULT_TAGNAME);
-
+	serBaudrate = strdup("9600");
+	serStopbits = strdup("1");
 
 
 	AP_START(argopt)
 		AP_HELP
 		AP_OPT_STRVAL_CB    (0,0,"configfile"    ,NULL                   ,"config file name",&dummyCallback)
-		AP_OPT_STRVAL       (0,'d',"device"      ,&serDevice             ,"specify serial device name")
-		AP_OPT_INTVAL       (1,0 ,"baud"         ,&serBaudrate           ,"baudrate")
+		AP_OPT_STRVAL       (0,'d',"device"      ,&serDevice             ,"specify serial device names separated by ,")
+		AP_OPT_STRVAL       (1,0 ,"baud"         ,&serBaudrate           ,"baudrates separated by ,")
 		AP_OPT_STRVAL       (1,'a',"parity"      ,&serParity             ,"N (default), E or O")
-		AP_OPT_INTVAL       (1,'S'  ,"stopbits"    ,&serStopbits           ,"1 or 2 stopbits")
-		AP_OPT_INTVAL       (1,'4',"rs485"       ,&ser_rs485             ,"set rs485 mode")
+		AP_OPT_STRVAL       (1,'S'  ,"stopbits"    ,&serStopbits           ,"1 or 2 stopbits")
+		AP_OPT_STRVAL       (1,'4',"rs485"       ,&ser_rs485             ,"set rs485 mode")
 
 		//AP_REQ_STRVAL_CB    (1,'a',"tags"        ,NULL                  ,"specify influxdb tags for each meter separated by ,", &parseTagCallback)
 		AP_OPT_STRVAL       (1,'m',"measurement"    ,&influxMeasurement    ,"Influxdb measurement")
@@ -580,18 +581,24 @@ int main(int argc, char *argv[]) {
 
 
 	// open serial port, needed by readMeterDefinitions if we have Modbus RTU connections
-	if (serDevice)	// not needed if we only have TCP connections
-		if (modbusRTU_open (serDevice,serBaudrate,serParity,serStopbits,ser_rs485) != 0) {
-			EPRINTF("%s: unable to open serial port at %s\n",argv[0],serDevice);
-			exit(3);
-		}
+	if (serDevice) {	// not needed if we only have TCP connections
+		if (meterSerialScanDevice (serDevice)) exit(3);
+		if (meterSerialScanBaudrate (serBaudrate)) exit(3);
+		if (meterSerialScanParity (serParity)) exit(3);
+		if (meterSerialScanrs485 (ser_rs485)) exit(3);
+		if (meterSerialScanStopbits (serStopbits)) exit (3);
+		if (meterSerialOpen ()) exit(3);
+		//if (modbusRTU_open (serDevice,serBaudrate,serParity,serStopbits,ser_rs485) != 0) {
+		//	EPRINTF("%s: unable to open serial port at %s\n",argv[0],serDevice);
+		//	exit(3);
+	}
 
 	if (scanRTU) {
 		if (! serDevice) {
 			EPRINTFN("scanrtu: no serial port specified");
 			exit(1);
 		}
-		modbus_t ** mb = modbusRTU_getmh();
+		modbus_t ** mb = modbusRTU_getmh(0);
 		uint16_t regValue;
 		printf("scanning for modbus RTU devices\n");
 		for (i=1;i<254;i++) {
@@ -602,7 +609,7 @@ int main(int argc, char *argv[]) {
 			if (rc == -1) rc = errno;
 			VPRINTFN(1,"modbus_read_registers for slave %d returned %d (%s)",i,rc,modbus_strerror(rc));
 			if (rc == 0) printf("\rfound device at id %d\n",i);
-			modbusRTU_SilentDelay();  //
+			modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));  //
 			//msleep(25);
 		}
 		exit(0);

@@ -593,13 +593,17 @@ int parseMeter (parser_t * pa) {
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
 	while (tk != TK_SECTION && tk != TK_EOF) {
 		switch(tk) {
-	    case TK_PORT:
+			case TK_PORT:
                 parserExpectEqual(pa,TK_STRVAL);
-		meter->port=strdup(pa->strVal);
-		break;
+				meter->port=strdup(pa->strVal);
+				break;
             case TK_MODBUSDEBUG:
                 parserExpectEqual(pa,TK_INTVAL);
 				meter->modbusDebug = pa->iVal;
+				break;
+			case TK_SERIAL:
+                parserExpectEqual(pa,TK_INTVAL);
+				meter->serialPortNum = pa->iVal;
 				break;
             case TK_INFLUXWRITEMULT:
                 //if (! typeDefined) parserError(pa,"has to be defined after type=");
@@ -1002,6 +1006,7 @@ int readMeterDefinitions (const char * configFileName) {
 		"imin"            ,TK_IMIN,
 		"iavg"            ,TK_IAVG,
 		"modbusdebug"     ,TK_MODBUSDEBUG,
+		"serial"          ,TK_SERIAL,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
@@ -1035,11 +1040,12 @@ int readMeterDefinitions (const char * configFileName) {
 			//do the open when querying the meter to be able to retry of temporary not available
 		} else {	// modbus RTU
 			if (meter->modbusAddress > 0) {
-				meter->mb = modbusRTU_getmh();
+				meter->mb = modbusRTU_getmh(meter->serialPortNum);
 				if (*meter->mb == NULL && meter->disabled == 0) {
 					EPRINTFN("%s: serial modbus not yet opened or no serial device specified",meter->name);
 					exit(1);
 				}
+				meter->baudrate = modbusRTU_getBaudrate(meter->serialPortNum);
 			}
 		}
 		meter = meter->next;
