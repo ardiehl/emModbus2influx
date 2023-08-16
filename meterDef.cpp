@@ -5,8 +5,8 @@
 #include "argparse.h"
 #include "log.h"
 #include "modbusread.h"
-#include "parser.h"
 #include <endian.h>
+#include "cron.h"
 
 extern int mqttQOS;
 extern int mqttRetain;
@@ -177,10 +177,13 @@ void buf16add (uint16_t val,int count,uint16_t **buf,int *numWords,int *bufSize)
 void checkAllowedChars (parser_t *pa, char *name) {
     char *s = name;
     int len = strlen(name);
+    if (*s <= '9' && *s >= '0')
+		parserError(pa,"variable name must not begin with a number, found '%c' (0x%02x) in '%s'",*s,*s,name);
+
     while (*s) {
         if (! strchr(MUPARSER_ALLOWED_CHARS,*s)) {
             pa->col -= len;
-            parserError(pa,"invalid char '%c' 0x%02x in '%s'",*s,*s,name);
+            parserError(pa,"invalid char '%c' (0x%02x) in '%s'",*s,*s,name);
         }
         s++;
         len--;
@@ -255,6 +258,7 @@ int parseMeterType (parser_t * pa) {
 	int tarif;
 	int enableInfluxWrite = 1;
 	int enableMqttWrite = 1;
+	regType_t regType = regTypeHolding;
 
 	meterType = (meterType_t *)calloc(1,sizeof(meterType_t));
 	meterType->mqttprefix = strdup(mqttprefix);
@@ -267,6 +271,20 @@ int parseMeterType (parser_t * pa) {
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
 	while (tk != TK_SECTION && tk != TK_EOF) {
 		switch(tk) {
+			case TK_TYPE:
+				parserExpect(pa,TK_EQUAL);
+				tk = parserGetToken(pa);
+				switch (tk) {
+					case TK_HOLDING:
+						regType = regTypeHolding;
+						break;
+					case TK_INPUT:
+						regType = regTypeInput;
+						break;
+					default:
+						parserError(pa,"Modbus register type expects input or holding");
+				}
+				break;
             case TK_INFLUXWRITEMULT:
                 parserExpectEqual(pa,TK_INTVAL);
 				meterType->influxWriteMult = pa->iVal;
@@ -321,7 +339,7 @@ int parseMeterType (parser_t * pa) {
 					parserExpectEqual(pa,TK_INTVAL);
 					meterType->sunspecBaseAddr = pa->iVal;
 				}
-				VPRINTFN(3,"sunspec base addr: %d",meterType->sunspecBaseAddr);
+				VPRINTFN(4,"%s: sunspec base addr: %d",meterType->name, meterType->sunspecBaseAddr);
 				break;
 			case TK_ID:
 				parserExpectEqual(pa,TK_INTVAL);
@@ -332,6 +350,7 @@ int parseMeterType (parser_t * pa) {
 				parserExpectEqual(pa,TK_INTVAL);
 				meterRead = (meterRead_t *)calloc(1,sizeof(meterRead_t));
 				meterRead->startAddr = pa->iVal;
+				meterRead->regType=regType;
 				parserExpect(pa,TK_COMMA);
 				meterRead->numRegisters = parserExpectInteger(pa);
 				meterRead->sunspecId = lastsunspecId;
@@ -342,6 +361,7 @@ int parseMeterType (parser_t * pa) {
 				meterRead = (meterRead_t *)calloc(1,sizeof(meterRead_t));
 				lastsunspecId = pa->iVal;
 				meterRead->startAddr = 0;
+				meterRead->regType=regType;
 				if (pch(pa)==',') {
 					parserExpect(pa,TK_COMMA); meterRead->startAddr = parserExpectInteger(pa);
 					parserExpect(pa,TK_COMMA); meterRead->numRegisters = parserExpectInteger(pa);
@@ -392,6 +412,7 @@ int parseMeterType (parser_t * pa) {
 				meterRegister->name = strdup(pa->strVal);
 				checkAllowedChars (pa,meterRegister->name);
 				meterRegister->sunspecId = lastsunspecId;
+				meterRegister->regType=regType;
 				parserExpect(pa,TK_EQUAL);
 				tk = parserGetToken(pa);
 				switch (tk) {
@@ -535,7 +556,6 @@ int parseMeterType (parser_t * pa) {
 				} else meterType->meterRegisters = meterRegister;
 
 				// update enabled register count
-				if (meterRegister->enableInfluxWrite) meterType->numEnabledRegisters_influx++;
 				if (meterRegister->enableMqttWrite) meterType->numEnabledRegisters_mqtt++;
 				break;
 
@@ -556,9 +576,11 @@ int parseMeterType (parser_t * pa) {
 	if (!meterType->meterReads) fprintf(stderr,"\"%s\": Warning: no meter reads, form a performance point of view, meter reads should be defined to avoid single register reads\n",meterType->name);
 
 	meterType->isFormulaOnly = 1;
+	meterType->numEnabledRegisters_influx = 0;
 	meterRegister = meterType->meterRegisters;
 	while (meterRegister) {
 			if (! meterRegister->isFormulaOnly) meterType->isFormulaOnly = 0;
+			meterType->numEnabledRegisters_influx += meterRegister->enableInfluxWrite;
 			meterRegister = meterRegister->next;
 	}
 
@@ -593,6 +615,16 @@ int parseMeter (parser_t * pa) {
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
 	while (tk != TK_SECTION && tk != TK_EOF) {
 		switch(tk) {
+			case TK_SCHEDULE:
+				parserExpectEqual(pa,TK_STRVAL);
+				cron_meter_add_byName(pa->strVal,meter);
+				while (tk == TK_COMMA) {
+					tk = parserGetToken(pa);
+					parserExpect(pa,TK_STRVAL);
+					cron_meter_add_byName(pa->strVal,meter);
+					tk = parserGetToken(pa);
+				}
+				break;
 			case TK_PORT:
                 parserExpectEqual(pa,TK_STRVAL);
 				meter->port=strdup(pa->strVal);
@@ -649,7 +681,7 @@ int parseMeter (parser_t * pa) {
 				meter->meterType = findMeterType(pa->strVal);
 				if (!meter->meterType) parserError(pa,"undefined meter type ('%s')",pa->strVal);
 				meter->numEnabledRegisters_mqtt = meter->meterType->numEnabledRegisters_mqtt;
-				meter->numEnabledRegisters_influx = meter->meterType->numEnabledRegisters_influx;
+				meter->numEnabledRegisters_influx += meter->meterType->numEnabledRegisters_influx;
 				if (meter->meterType->mqttprefix) {
 					free(meter->mqttprefix);
 					meter->mqttprefix = strdup(meter->meterType->mqttprefix);
@@ -797,9 +829,16 @@ int parseMeter (parser_t * pa) {
 		tk = parserGetToken(pa);
 	}
 
-	if (meter->meterType)
+	if (meter->meterType) {
 		if (meter->mqttprefix == NULL)
 			if (meter->meterType->mqttprefix) meter->mqttprefix = strdup(meter->meterType->mqttprefix);
+		if ((! meter->meterType->meterReads) || (meter->disabled)) {
+			meter->isTCP = 0;
+			meter->isSerial = 0;
+		} else {
+			if (!meter->isTCP) meter->isSerial=1;
+		}
+	}
 	if (meter->mqttprefix == NULL)
 		if (mqttprefix) meter->mqttprefix = strdup(mqttprefix);
 
@@ -846,6 +885,12 @@ int parseMeter (parser_t * pa) {
 		}
 	}
 	if (meter->influxWriteMult) meter->influxWriteCountdown = -1; // meter->influxWriteMult;
+
+	meterFormula = meter->meterFormula;
+	while (meterFormula) {
+		if (meterFormula->enableInfluxWrite) meter->numEnabledRegisters_influx++;
+		meterFormula = meterFormula->next;
+	}
 
 	return tk;
 }
@@ -1007,6 +1052,11 @@ int readMeterDefinitions (const char * configFileName) {
 		"iavg"            ,TK_IAVG,
 		"modbusdebug"     ,TK_MODBUSDEBUG,
 		"serial"          ,TK_SERIAL,
+		"default"         ,TK_DEFAULT,
+		"schedule"        ,TK_SCHEDULE,
+		"iname"           ,TK_INAME,
+		"holding"         ,TK_HOLDING,
+		"input"           ,TK_INPUT,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
@@ -1022,6 +1072,8 @@ int readMeterDefinitions (const char * configFileName) {
 			tk = parseMeter(pa);
         else if (strcasecmp(pa->strVal,"Tarifs") == 0)
 			tk = parseTarif(pa);
+		else if (strcasecmp(pa->strVal,"Schedule") == 0)
+			tk = parseCron(pa);
 		else
 			parserError(pa,"unknown section type %s",pa->strVal);
 	}
@@ -1039,13 +1091,13 @@ int readMeterDefinitions (const char * configFileName) {
 			//meter->mb = modbus_new_tcp_pi(meter->hostname, const char *service);
 			//do the open when querying the meter to be able to retry of temporary not available
 		} else {	// modbus RTU
-			if (meter->modbusAddress > 0) {
+			if (meter->isSerial) {
 				meter->mb = modbusRTU_getmh(meter->serialPortNum);
 				if (*meter->mb == NULL && meter->disabled == 0) {
 					EPRINTFN("%s: serial modbus not yet opened or no serial device specified",meter->name);
 					exit(1);
 				}
-				meter->baudrate = modbusRTU_getBaudrate(meter->serialPortNum);
+				meter->baudrate = modbusRTU_getBaudrate(meter->serialPortNum);	// RTU only
 			}
 		}
 		meter = meter->next;

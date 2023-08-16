@@ -2,7 +2,7 @@
 #define METERDEF_H_INCLUDED
 
 #include <modbus.h>
-
+#include "parser.h"
 
 #define MUPARSER_ALLOWED_CHARS "0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ."
 
@@ -79,6 +79,11 @@
 #define TK_IAVG            622
 #define TK_MODBUSDEBUG     623
 #define TK_SERIAL          624
+#define TK_DEFAULT         625
+#define TK_SCHEDULE        626
+#define TK_INAME           627
+#define TK_INPUT           628
+#define TK_HOLDING         629
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -106,12 +111,16 @@ struct sunspecIds_t {
 	sunspecId_t * ids;
 };
 
+typedef enum  {regTypeHolding = 0, regTypeInput} regType_t;
+
+#define regTypeSunspec regTypeHolding
 
 typedef struct meterRead_t meterRead_t;
 struct meterRead_t {
 	int startAddr;
 	int numRegisters;
 	int sunspecId;
+	regType_t regType;		// Holding or Input register
 	meterRead_t *next;
 };
 
@@ -126,6 +135,7 @@ struct meterInit_t {
 
 typedef enum  {force_none = 0, force_int, force_float} typeForce_t;
 
+
 // used when influxdb data will be written every x queries
 typedef enum  {pr_last = 0, pr_max, pr_min, pr_avg} influxMultProcessing_t;
 
@@ -134,6 +144,7 @@ struct meterRegister_t {
 	char *name;
 	int isFormulaOnly;  // 1 when no modbus read will be performed
 	char *formula;      // either for modifying a value read via modbus or for calculating a "virtual" register based on values of other registers
+	regType_t regType;		// Holding or Input register
 	int startAddr;
 	int numRegisters;
 	int type;
@@ -219,9 +230,13 @@ struct meter_t {
 	meterType_t *meterType;
 	int modbusAddress;
 	char *name;
+	char *iname;
 	int meterHasBeenRead;
+	int hasSchedule;
+	int isDue;
 	modbus_t **mb;	// pointer to a pointer to global RTU handle or a global one for a TCP connection (multiple meters may use the same IP connection)
 	int isTCP;
+	int isSerial;
 	char *hostname;
 	char *port;
 	int serialPortNum;
@@ -243,6 +258,13 @@ struct meter_t {
 	int influxWriteMult;
 	int influxWriteCountdown;
 	int modbusDebug;
+	unsigned int queryTimeNano;
+	unsigned int queryTimeNanoMin;
+	unsigned int queryTimeNanoMax;
+	unsigned int queryTimeNanoAvg;
+	unsigned int queryTimeNanoInitial;
+	unsigned int numQueries;	// including errs
+	unsigned int numErrs;
 };
 
 
@@ -274,6 +296,6 @@ void freeMeters();
 
 meter_t *findMeter(char *name);
 
-
+int parserExpectEqual(parser_t * pa, int tkExpected);
 
 #endif // METERDEF_H_INCLUDED

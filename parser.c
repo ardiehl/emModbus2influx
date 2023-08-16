@@ -16,13 +16,13 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include "argparse.h"
-
+#include "log.h"
 
 void buf_init(buf_t * b, int allocSize) {
 	if (allocSize < 1) allocSize = 256;
 	b->buf = calloc(1,allocSize);
 	if (b->buf == NULL) {
-		fprintf(stderr,"malloc failed\n");
+		EPRINTF("malloc failed\n");
 		exit(1);
 	}
 	b->allocSize = allocSize;
@@ -36,7 +36,7 @@ void buf_addChar(buf_t * b, char c) {
 		b->allocSize = b->allocSize * 2;
 		b->buf = realloc(b->buf,b->allocSize);
 		if (b->buf == NULL) {
-			fprintf(stderr,"realloc failed\n");
+			EPRINTF("realloc failed\n");
 			exit(1);
 		}
 	}
@@ -264,15 +264,15 @@ void parserError(parser_t *pa, const char *format, ...) {
 
 	if (pa->currLine)
 		if (*pa->currLine) {
-			fprintf(stderr,"%s\n",pa->currLine);
+			EPRINTF("%s\n",pa->currLine);
 			col = pa->col; if (col) col--;
-			for (i=0;i<col;i++) fprintf(stderr," ");
-			fprintf(stderr,"^\n");
-			for (i=0;i<col;i++) fprintf(stderr," ");
-			fprintf(stderr,"|\n");
+			for (i=0;i<col;i++) EPRINTF(" ");
+			EPRINTF("^\n");
+			for (i=0;i<col;i++) EPRINTF(" ");
+			EPRINTF("|\n");
 		}
 
-	fprintf(stderr,"%s: line %d, column %d - %s\n",pa->fileName,pa->currLineNo,pa->col,buf);
+	EPRINTF("%s: line %d, column %d - %s\n",pa->fileName,pa->currLineNo,pa->col,buf);
 	free(buf);
 	exit(1);
 }
@@ -281,7 +281,7 @@ void parserError(parser_t *pa, const char *format, ...) {
 int hexNibble (char c) {
 	if (c >= '0' && c <= '9') return c-'0';
 	if (c >='a' && c <= 'f') return c-'a'+10;
-	fprintf(stderr,"hexNibble: invalid character %c\n",c);
+	EPRINTF("hexNibble: invalid character %c\n",c);
 	exit(1);
 }
 
@@ -329,7 +329,7 @@ int parserGetToken (parser_t *pa) {
 	}
 
 	if (pa->charTokens == NULL) {
-		fprintf(stderr,"parser: char tokens not initialized\n");
+		EPRINTF("parser: char tokens not initialized\n");
 		exit(1);
 	}
 

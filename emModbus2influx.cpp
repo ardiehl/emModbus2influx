@@ -32,6 +32,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include <modbus.h>
 #include "global.h"
 #include <endian.h>
+#include "cron.h"
 
 #ifndef DISABLE_FORMULAS
 #include "muParser.h"
@@ -39,13 +40,18 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.06 Armin Diehl <ad@ardiehl.de> Jul 24,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.09 Armin Diehl <ad@ardiehl.de> Aug 16,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
 #define MQTT_CLIENT_ID ME
 
 #define NUM_RECS_TO_BUFFER_ON_FAILURE 1000
+
+// this is for grafana live (via MQTT and telegraf), if we only send data when changed
+// grafana will, after some time, show "NO DATA"
+#define MQTT_SEND_UNCHANGED
+
 
 extern double formulaNumPolls;
 char *configFileName;
@@ -86,6 +92,106 @@ int mqttQOS;
 int mqttRetain;
 int mqttDelayMs;
 char * mqttprefix;
+char * mqttstatprefix;
+char * cronExpression;
+
+int scan;
+int scanStart;
+int scanEnd = 0xffff;
+char * scanHost;
+int scanAddr;
+int scanInput;
+int scanHolding;
+
+
+void scanAddresses() {
+	modbus_t *ctx;
+	int reg;
+	uint16_t value;
+	int res;
+	int isSerial = 0;
+	int numFound;
+
+	if (!scanInput && !scanHolding) {
+		scanInput++; scanHolding++;
+	}
+
+	if (scanHost) {
+		ctx = modbus_new_tcp_pi(scanHost, "502");
+	} else {
+		ctx = *modbusRTU_getmh(0);
+		isSerial++;
+	}
+
+	if (!isSerial && scanAddr == 0) scanAddr = 0xff;
+
+	if (!scanAddr) {
+		fprintf(stderr, "no slave address specified\n");
+		return;
+	}
+
+
+	res = modbus_connect(ctx);
+	if (res != 0) {
+		fprintf(stderr,"unable to connect to %s (%s)\n",scanHost ? scanHost : "Serial0" ,modbus_strerror(errno));
+		return;
+	}
+
+	res = modbus_set_slave(ctx, scanAddr);
+	if (res == -1) {
+		fprintf(stderr, "Invalid slave address\n");
+		modbus_free(ctx);
+		return;
+	}
+
+	fprintf(stderr,"connected to %s, slave address %d\n",scanHost ? scanHost : "Serial0", scanAddr);
+
+	if (scanEnd < scanStart) scanEnd = scanStart+1;
+	printf("Scanning from %d to %d\n",scanStart,scanEnd);
+
+	if (scanHolding) {
+		printf("Scanning Holding registers (function 3):\n");
+		numFound = 0;
+		for (reg=scanStart; reg<=scanEnd; reg++) {
+			res = modbus_read_registers(ctx, reg,1,&value);
+			if (res == ETIMEDOUT) {
+				msleep(50);
+				res = modbus_read_registers(ctx, reg,1,&value);
+			}
+			if (reg % 10 == 0) { printf("\r%d ",reg); fflush(stdout); }
+			if (res >= 0) {
+				printf("\r%d: 0x%04x (%d)\n",reg,value,value);
+				numFound++;
+			}
+			if (verbose && (res <= 0)) printf("\r%d Res:%d (%s)\n",reg,errno,modbus_strerror(errno));
+			if (isSerial) modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));
+			//msleep(250);
+		}
+		printf("\rfound %d holding registers\n\n",numFound);
+	}
+
+	if (scanInput) {
+		printf("\nInput registers (function 4):\n");
+		numFound = 0;
+		for (reg=scanStart; reg<=scanEnd; reg++) {
+			res = modbus_read_input_registers(ctx, reg, 1,&value);
+			if (res == ETIMEDOUT) {
+				msleep(50);
+				res = modbus_read_input_registers(ctx, reg,1,&value);
+			}
+			if (reg % 10 == 0) { printf("\r%d ",reg); fflush(stdout); }
+			if (res >= 0) {
+				printf("\r%d: 0x%04x (%d)\n",reg,value,value);
+				numFound++;
+			}
+			if (verbose && (res <= 0)) printf("\r%d Res:%d (%s)\n",reg,errno,modbus_strerror(errno));
+			if (isSerial) modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));
+		}
+		printf("\rfound %d input registers\n\n",numFound);
+	}
+}
+
+
 
 int syslogTestCallback(argParse_handleT *a, char * arg) {
 	VPRINTF(0,"%s : sending testtext via syslog\n\n",ME);
@@ -177,6 +283,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'c',"cache"          ,&numQueueEntries      ,"#entries for influxdb cache")
 		AP_OPT_STRVAL       (1,'M',"mqttserver"     ,&mClient->hostname    ,"mqtt server name or ip")
 		AP_OPT_STRVAL       (1,'C',"mqttprefix"     ,&mqttprefix           ,"prefix for mqtt publish")
+		AP_OPT_STRVAL       (1,0  ,"mqttstatprefix" ,&mqttstatprefix       ,"prefix for mqtt statistics publish")
 		AP_OPT_INTVAL       (1,'R',"mqttport"       ,&mClient->port        ,"ip port for mqtt server")
 		AP_OPT_INTVAL       (1,'Q',"mqttqos"        ,&mqttQOS              ,"default mqtt QOS, can be changed for meter")
 		AP_OPT_INTVAL       (1,'l',"mqttdelay"      ,&mqttDelayMs          ,"delay milliseconds after mqtt publish")
@@ -185,15 +292,24 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
 		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
+		AP_OPT_STRVAL       (0, 'H',"cron"          ,&cronExpression       ,"Crontab style expression like Sec Min Hour Day Mon Wday")
+		AP_OPT_INTVALF      (0, 0 ,"no-threads"     ,&disableThreadedQuery  ,"enable threaded query (one thread for each serial port and one for tcp)")
 		AP_OPT_INTVALF      (0,'y',"syslog"         ,&syslog               ,"log to syslog insead of stderr")
 		AP_OPT_INTVALF_CB   (0,'Y',"syslogtest"     ,NULL                  ,"send a testtext to syslog and exit",&syslogTestCallback)
 		AP_OPT_INTVALF_CB   (0,'e',"version"        ,NULL                  ,"show version and exit",&showVersionCallback)
 		AP_OPT_INTVALF      (0,'D',"dumpregisters"  ,&dumpRegisters        ,"Show registers read from all meters and exit, twice to show received data")
-		AP_OPT_INTVALFO     (0,'U',"dryrun"         ,&dryrun               ,"Show what would be written to MQQT/Influx for one query and exit")
+		AP_OPT_INTVALFO     (0,'U',"dryrun"         ,&dryrun               ,"Show what would be written to MQTT/Influx for one query and exit")
 		AP_OPT_INTVALF      (0,'t',"try"            ,&doTry                ,"try to connect returns 0 on success")
 		AP_OPT_STRVAL       (0, 0 ,"formtryt"       ,&formulaValMeterName  ,"interactive try out formula for register values for a given meter name")
 		AP_OPT_INTVALF      (0, 0 ,"formtry"        ,&formulaTry           ,"interactive try out formula (global for formulas in meter definition)")
 		AP_OPT_INTVALF      (1, 0 ,"scanrtu"        ,&scanRTU              ,"scan for modbus rtu devices")
+		AP_OPT_INTVALF      (1, 0 ,"scan"           ,&scan                 ,"scan a device for available registers")
+		AP_OPT_INTVAL       (1, 0 ,"scanstart"      ,&scanStart            ,"register to start scan with")
+		AP_OPT_INTVAL       (1, 0 ,"scanend"        ,&scanEnd              ,"register to end scan with")
+		AP_OPT_STRVAL       (0, 0 ,"scanhost"       ,&scanHost             ,"TCP hostname, if not specified Modbus RTU will be used for scan")
+		AP_OPT_INTVAL       (1, 0 ,"scanaddr"       ,&scanAddr             ,"Modbus address to scan")
+		AP_OPT_INTVALF      (1, 0 ,"scaninput"      ,&scanInput            ,"scan input registers (default=both)")
+		AP_OPT_INTVALF      (1, 0 ,"scanholding"    ,&scanHolding          ,"scan holding registers (default=both)")
 	AP_END;
 
 	// check if we have a configfile argument
@@ -386,6 +502,8 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	char emptyStr = 0;
 	int rc = 0;
 	char *measurement;
+	char valBuf[VALBUFLEN];
+	double timeSecs;
 
 	// check if we have something to write
 	if (meter->disabled) return 0;
@@ -460,13 +578,15 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	APPEND("}");
 
     int doWrite = 1;        // if mqtt retain is send, only write if data has been changed
+#ifndef MQTT_SEND_UNCHANGED
     if (meter->mqttLastSend && meter->mqttRetain) {
         if (strcmp(buf,meter->mqttLastSend) == 0) doWrite--;
     }
-    LOGN(1,"%s: retain: %d, qos: %d, mqttLastSend: '%s', buf: '%s', doWrite: %d",meter->name,meter->mqttRetain,meter->mqttQOS,meter->mqttLastSend,buf,doWrite);
+#endif
+	if (!dryrun) VPRINTFN(3,"%s: retain: %d, qos: %d, mqttLastSend: '%s', buf: '%s', doWrite: %d",meter->name,meter->mqttRetain,meter->mqttQOS,meter->mqttLastSend,buf,doWrite);
 
 	if (dryrun) {
-		printf("%s = %s %s\n",meter->name,buf,doWrite ? "" : "- no change, will not be written");
+		printf("%s%s %s %s\n",meter->mqttprefix,meter->name,buf,doWrite ? "" : "- no change, will not be written");
 	} else {
         if (doWrite) {
             mClient->topicPrefix = meter->mqttprefix;
@@ -475,9 +595,70 @@ int mqttSendData (meter_t * meter,int dryrun) {
             mClient->topicPrefix = NULL;
         }
 	}
+#ifndef MQTT_SEND_UNCHANGED
     free(meter->mqttLastSend);
 	meter->mqttLastSend = buf;
+#else
+	free(buf);
+#endif
+
+	if (mqttstatprefix && meter->registerRead && !meter->meterType->isFormulaOnly) {
+		buf = (char *)malloc(bufsize);
+		if (buf == NULL) return -1;
+		*buf=0; buflen=0;
+
+		APPEND("{\"name\":\"stat.");
+		measurement = meter->influxMeasurement;
+		if (! measurement) measurement = influxMeasurement;
+		if (measurement) {
+			APPEND(measurement); APPEND(".");
+		}
+		APPEND(meter->name);
+
+		APPEND("\", \"last\":");
+		timeSecs = meter->queryTimeNano / NANO_PER_SEC;
+		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		APPEND(valBuf);
+
+		APPEND(", \"avg\":");
+		timeSecs = meter->queryTimeNanoAvg / NANO_PER_SEC;
+		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		APPEND(valBuf);
+
+		APPEND(", \"min\":");
+		timeSecs = meter->queryTimeNanoMin / NANO_PER_SEC;
+		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		APPEND(valBuf);
+
+		APPEND(", \"max\":");
+		timeSecs = meter->queryTimeNanoMax / NANO_PER_SEC;
+		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		APPEND(valBuf);
+
+		APPEND(", \"initial\":");
+		timeSecs = meter->queryTimeNanoInitial / NANO_PER_SEC;
+		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		APPEND(valBuf);
+
+		APPEND(", \"numQueries\":");
+		snprintf(valBuf,VALBUFLEN,"%d",meter->numQueries);
+		APPEND(valBuf);
+
+		APPEND(", \"numErrs\":");
+		snprintf(valBuf,VALBUFLEN,"%d",meter->numErrs);
+		APPEND(valBuf);
+
+
+		APPEND("}");
+
+		mClient->topicPrefix = mqttstatprefix;
+		mqtt_pub_strF (mClient,meter->name, 0, 0, 1, buf);
+		mClient->topicPrefix = NULL;
+
+	}
+
 	if (meter->mqttDelayMs) msleep(meter->mqttDelayMs);
+
 	return rc;
 }
 
@@ -496,10 +677,17 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
 	if (meter->influxTagName) tagname = meter->influxTagName;
 
 	// check if we have something to write
-	if (meter->disabled) return 0;
-	if (! meter->numEnabledRegisters_influx) return 0;
+	if (meter->disabled) {
+		VPRINTFN(2,"%s; influx: meter is disabled");
+		return 0;
+	}
+	if (! meter->numEnabledRegisters_influx) {
+		VPRINTFN(2,"%s; influx: no enabled registers",meter->name);
+		return 0;
+	}
+	//printf("%s: InfluxAppendData\n",meter->name);
 
-	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->name),INFLUX_END);
+	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->iname ? meter->iname : meter->name),INFLUX_END);
 	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS"); exit(1); }
 
     rr = meter->registerRead;
@@ -542,16 +730,44 @@ void traceCallback(enum MQTTCLIENT_TRACE_LEVELS level, char *message) {
 	printf(message); printf("\n");
 }
 
-#define NANO_PER_SEC 1000000000.0
+
+void modbusSendMeterData(double queryTime) {
+	int numMeters;
+	meter_t * meter;
+	char statBuf[255];
+
+	if (mClient) {		// mqtt
+		if (dryrun) printf("\nDryrun: would send to mqtt:\n");
+		numMeters = 0;
+		meter = meters;
+		while(meter) {
+			if (meter->meterHasBeenRead) {
+				mqttSendData (meter,dryrun);
+				numMeters++;
+			}
+			meter = meter->next;
+		}
+		if (numMeters) VPRINTFN(1,"%d lines (w/o stat) posted to mqtt",numMeters);
+		if (mqttstatprefix) {
+			snprintf(statBuf,sizeof(statBuf),"{\"name\": \"stat.total\", \"last\": %06.4f}",queryTime);
+			mClient->topicPrefix = mqttstatprefix;
+			if (dryrun || (verbose > 1)) printf("%s %s\n",mqttstatprefix, statBuf);
+			if (!dryrun) mqtt_pub_strF (mClient,(char *)"total", 0, 0, 1, statBuf);
+			mClient->topicPrefix = NULL;
+		}
+	}
+}
+
 
 int main(int argc, char *argv[]) {
 	int rc,i;
 	meter_t *meter;
 	uint64_t influxTimestamp;
 	struct timespec timeStart, timeEnd;
-	time_t nextQueryTime;
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
 	double queryTime;
+
+	int numMeters;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
 
@@ -578,7 +794,12 @@ int main(int argc, char *argv[]) {
 	exit(1);
 #endif
 
-
+	if (!cronExpression) {	// if we have poll seconds specified, build a cron expression
+		cronExpression = (char *)malloc(30);
+		snprintf(cronExpression,30,"*/%d * * * * *",queryIntervalSecs);
+	}
+	// add default schedule
+	cron_add(NULL,cronExpression);
 
 	// open serial port, needed by readMeterDefinitions if we have Modbus RTU connections
 	if (serDevice) {	// not needed if we only have TCP connections
@@ -591,6 +812,16 @@ int main(int argc, char *argv[]) {
 		//if (modbusRTU_open (serDevice,serBaudrate,serParity,serStopbits,ser_rs485) != 0) {
 		//	EPRINTF("%s: unable to open serial port at %s\n",argv[0],serDevice);
 		//	exit(3);
+	}
+
+	if (scan) {
+		if (! scanHost)
+			if (! serDevice) {
+				EPRINTFN("scan: no serial port specified");
+				exit(1);
+			}
+		scanAddresses();
+		exit(0);
 	}
 
 	if (scanRTU) {
@@ -616,6 +847,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	readMeterDefinitions (configFileName);
+	cron_setDefault();
+	if (verbose) cron_showSchedules();
+
 
 	if (dumpRegisters) {
 		printf("Querying all meters\n" \
@@ -680,6 +914,17 @@ int main(int argc, char *argv[]) {
 	    exit(1);
 	}
 
+	if (verbose > 2) {
+		meter = meters;
+		printf("Name                            TCP  Ser serNum schedules\n");
+		printf("---------------------------------------------------------\n");
+		while(meter) {
+			printf("%-30s %4d %4d   %4d %9d\n",meter->name,meter->isTCP,meter->isSerial,meter->serialPortNum,meter->hasSchedule);
+			meter = meter->next;
+		}
+		printf("\n");
+	}
+
 	// term handler for ^c and SIGTERM send by systemd
 	//signal(SIGKILL, sigterm_handler);
 	signal(SIGTERM, sigterm_handler);
@@ -688,95 +933,99 @@ int main(int argc, char *argv[]) {
 	signal(SIGUSR1, sigusr2_handler);	// used for verbose level inc/dec via kill command
 	signal(SIGUSR2, sigusr1_handler);
 
-	LOGN(0,"mainloop started (%s %s)",ME,VER);
+	PRINTFN("mainloop started (%s %s)",ME,VER);
+
+	// do an initial query but do not write to influx / mqtt (init / init sunspec)
+	clock_gettime(CLOCK_MONOTONIC,&timeStart);
+	if (dryrun || (verbose > 0)) printf("performing initial query for all meters\n");
+	rc = queryMeters(verbose);
+	clock_gettime(CLOCK_MONOTONIC,&timeEnd);
+	queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+	if (dryrun || (verbose>0))
+			printf("Initial query took %4.2f seconds\n",queryTime);
+	if (rc <= 0) {
+			terminated++;
+			EPRINTFN("Initial query: no meters could be queried");
+	} else {
+		PRINTFN("Initial query: %d meters",rc);
+	}
+
+	meter=meters;
+	while(meter) {
+		meter->queryTimeNanoInitial = meter->queryTimeNano;
+		meter->queryTimeNanoMax = 0;
+		meter=meter->next;
+	}
+
+	if (!dryrun) modbusSendMeterData(queryTime);	// initially send all data to mqtt
+
+	workerInit(meterSerialGetNumDevices(), dryrun || (verbose>0));
 
 	int loopCount = 0;
 	while (!terminated) {
-		formulaNumPolls++;
-		nextQueryTime = time(NULL) + queryIntervalSecs;
-        loopCount++;
-        if (dryrun) printf("- %d -----------------------------------------------------------------------\n",loopCount);
-        clock_gettime(CLOCK_REALTIME,&timeStart);
-		rc = queryMeters(verbose);
-		setTarif (verbose);
-		clock_gettime(CLOCK_REALTIME,&timeEnd);
-		if (dryrun || verbose>1) {
-            queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
-			printf("Query took %4.2f seconds\n",queryTime);
-        }
+		msleep(100);
+		clock_gettime(CLOCK_MONOTONIC,&timeStart);
+		rc = cron_queryMeters(dryrun || verbose>0);
+		if (rc > 0) {
+			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
+			loopCount++;
+			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+			if (dryrun || (verbose>0))
+				printf("Query %d took %4.2f seconds\n",loopCount,queryTime);
 
-        int influxLines = 0;
-		if (rc >= 0) {
 			if (iClient) {		// influx
 				influxBufUsed = 0; influxBuf=NULL;
 				influxTimestamp = influxdb_getTimestamp();
+				numMeters = 0;
 				meter = meters;
 				while(meter) {
-                    if(meter->influxWriteCountdown == 0) {
-						if (meter->meterHasBeenRead) {
+					if(!meter->disabled) {
+						if((meter->meterHasBeenRead) && (meter->influxWriteCountdown == 0)) {
 							influxAppendData (meter, influxTimestamp);
-							influxLines++;
+							meter->influxWriteCountdown = meter->influxWriteMult;
+							numMeters++;
+						} else {
+							VPRINTF(2,"Influx not written for %s, meterHasBeenRead: %d, influxWriteCountdown: %d\n",meter->name,meter->meterHasBeenRead,meter->influxWriteCountdown);
 						}
-                        meter->influxWriteCountdown = meter->influxWriteMult;
-                    }
+					}
 					meter = meter->next;
 				}
 				if (dryrun) {
-                    if (influxBuf) printf("\nDryrun: would send to influxdb:\n%s\n",influxBuf);
-					free(influxBuf); influxBuf = NULL;
+					if (influxBuf) {
+						printf("\nDryrun: would send to influxdb:\n%s\n",influxBuf);
+						free(influxBuf); influxBuf = NULL;
+					}
 				} else {
 					if (influxBuf) {
-						if (influxLines == 0) {
-							free(influxBuf); influxBuf = NULL;
+						rc = influxdb_post_http_line(iClient, influxBuf);
+						influxBuf=NULL;
+						if (rc != 0) {
+							EPRINTFN("Error: influxdb_post_http_line failed with rc %d",rc);
 						} else {
-							rc = influxdb_post_http_line(iClient, influxBuf);
-							influxBuf=NULL;
-							if (rc != 0) {
-								LOGN(0,"Error: influxdb_post_http_line failed with rc %d",rc);
-							}
+							VPRINTFN(1,"%d lines posted to influxdb",numMeters);
 						}
+					} else {
+						VPRINTFN(2,"nothing to send to influx");
 					}
 				}
 			}
 
-			if (mClient) {		// mqtt
-				if (dryrun) printf("Dryrun: would send to mqtt:\n");
-				meter = meters;
-				while(meter) {
-					if (meter->meterHasBeenRead) {
-						rc = mqttSendData (meter,dryrun);
-						if (rc == MQTT_RECONNECTED) {
-							// we have a reconnect, force all meters to resent data
-							meter_t * meterR = meters;
-							while (meterR) {
-								free(meterR->mqttLastSend); meterR->mqttLastSend = NULL;
-								meterR = meterR->next;
-							}
-						}
-					}
-					meter = meter->next;
-				}
+			modbusSendMeterData(queryTime);
 
+			if (dryrun) {
+				dryrun--;
+				if (!dryrun) terminated++;
+				printf("- %d -----------------------------------------------------------------------\n",loopCount);
+			} else {
+				if (verbose) printf("\n");
 			}
+			if (isFirstQuery) isFirstQuery--;
 		}
-
-		clock_gettime(CLOCK_REALTIME,&timeEnd);
-		queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
-		if (queryTime > queryIntervalSecs)
-			LOGN(0,"Warning: query and post took more time (%1.2f seconds) than the defined poll interval of %d seconds",queryTime,queryIntervalSecs);
-        //printf("query and post took took %1.2f seconds\n",queryTime);
-
-		while (time(NULL) < nextQueryTime && !terminated) {
-			msleep(100);
-		}
-
-		if (isFirstQuery) isFirstQuery--;
-
-        if (dryrun) {
-            dryrun--;
-            if (!dryrun) terminated++;
-        }
 	}
+
+	// terminate all worker threads
+	workerTerminate();
+
 
 #ifndef DISABLE_FORMULAS
 	freeFormulaParser();
@@ -796,7 +1045,7 @@ int main(int argc, char *argv[]) {
 	free(serParity);
 	freeMeters();
 
-	LOGN(0,"terminated");
+	PRINTFN("terminated");
 
 	return 0;
 }

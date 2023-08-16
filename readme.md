@@ -20,12 +20,9 @@ It is named meter because it was originally used to query energy meters but in f
  - use of [libmodbus](https://libmodbus.org/) for modbus TCP/RTU communication
  - use of [paho-c](https://github.com/eclipse/paho.mqtt.c) for MQTT
  - use of [muparser](https://beltoforion.de/en/muparser/) for formula parsing
+ - use of [ccronexpr](https://github.com/staticlibs/ccronexpr) for scheduling using cron expressions
  - libmodbus,paho-c and muparser can by dynamic linked (default) or downloaded, build and linked static automatically when not available on target platform, e.g. Victron Energy Cerbox GX (to be set at the top of Makefile)
- - unlimited number of MeterTypes, Meters and Modbus TCP slaves
-
-### Restrictions
-- currently only one Modbus RTU interface (=serial port) is supported (can be used by multiple Meters)
-- all Meters will be queried at the specified poll interval, however, InfluxDB writes can be delayed
+ - unlimited number of Serial ports, MeterTypes, Meters and Modbus TCP slaves
 
 ### Get started
 
@@ -126,6 +123,7 @@ Numbers can be specified decimal or, when prefixed with 0x, hexadecimal.
 Long command line options requires to be prefixed with -- while as in the config file the option has to be specified without the prefix. Short command line options can only be used on command line. The descriptions below show the options within the config file, if used on command line, a prefix of -- is required.
 
 ```
+  Usage: emModbus2influx [OPTION]...
   -h, --help              show this help and exit
   --configfile=           config file name
   -d, --device=           specify serial device names separated by ,
@@ -147,6 +145,7 @@ Long command line options requires to be prefixed with -- while as in the config
   -c, --cache=            #entries for influxdb cache (1000)
   -M, --mqttserver=       mqtt server name or ip (lnx.armin.d)
   -C, --mqttprefix=       prefix for mqtt publish (ad/house/energy/)
+  --mqttstatprefix=       prefix for mqtt statistics publish (ad/house/stat/)
   -R, --mqttport=         ip port for mqtt server (1883)
   -Q, --mqttqos=          default mqtt QOS, can be changed for meter (0)
   -l, --mqttdelay=        delay milliseconds after mqtt publish (0)
@@ -155,18 +154,27 @@ Long command line options requires to be prefixed with -- while as in the config
   -v, --verbose[=]        increase or set verbose level
   -G, --modbusdebug       set debug for libmodbus
   -P, --poll=             poll intervall in seconds
+  -H, --cron=             Crontab style expression like Sec Min Hour Day Mon Wday
+  --no-threads            enable threaded query (one thread for each serial port and one for tcp)
   -y, --syslog            log to syslog insead of stderr
   -Y, --syslogtest        send a testtext to syslog and exit
   -e, --version           show version and exit
   -D, --dumpregisters     Show registers read from all meters and exit, twice to show received data
-  -U, --dryrun[=]         Show what would be written to MQQT/Influx for one query and exit
+  -U, --dryrun[=]         Show what would be written to MQTT/Influx for one query and exit
   -t, --try               try to connect returns 0 on success
   --formtryt=             interactive try out formula for register values for a given meter name
   --formtry               interactive try out formula (global for formulas in meter definition)
   --scanrtu               scan for modbus rtu devices (0)
+  --scan                  scan a device for available registers (0)
+  --scanstart=            register to start scan with (0)
+  --scanend=              register to end scan with (65535)
+  --scanhost=             TCP hostname, if not specified Modbus RTU will be used for scan
+  --scanaddr=             Modbus address to scan (0)
+  --scaninput             scan input registers (default=both) (0)
+  --scanholding           scan holding registers (default=both) (0)
 ```
 
-### serial port for modbus RTU
+### serial port(s) for modbus RTU
 ```
 device=/dev/ttyUSB0
 baud=9600
@@ -197,10 +205,10 @@ tagname=Meter
 cache=1000
 ```
 
-If __server__ is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT only).  
-tagname will be the tag used for posting to Influxdb.  
-__port__ is the IP port number and defaults to 8086  
-__cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.  
+If __server__ is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT only).
+tagname will be the tag used for posting to Influxdb.
+__port__ is the IP port number and defaults to 8086
+__cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.
 __measurement__ sets the default measurement and can be overriden in a meter type or in a meter definition.
 
 ### InfluxDB version 1
@@ -228,6 +236,7 @@ token=
 ```
 mqttserver=
 mqttprefix=ad/house/energy/
+mqttstatprefix=ad/stat/
 mqttport=1883
 mqttqos=0
 mqttretain=0
@@ -236,6 +245,9 @@ mqttclientid=emModbus2influx
 
 Parameters for MQTT. If mqttserver is not specified, MQTT will be disabled at all (if you would like to use InfluxDB only).
 mqttqos and mqttretain sets the default, these can be overriden per meter or MeterType definition.
+
+__mqttstatprefix__:
+If defined, statistics about query times will be posted to mqtt.
 
 __mqttqos__:
 - At most once (0)
@@ -249,7 +261,7 @@ __mqttretain__:
 If mqttretain is set to 1, mqtt data will only send if data has been changed since last send.
 
 __mqttclientid__:
-defaults to emModbus2influx, needs to be changed if multiple instances of emModbusinflux are accessing the same mqtt server
+defaults to emModbus2influx, needs to be changed if multiple instances of emModbus2influx are accessing the same mqtt server
 
 
 ### additional options
@@ -260,10 +272,11 @@ modbusdebug
 poll=5
 ```
 
-__verbose__: sets the verbisity level  
-__syslog__: enables messages to syslog instead of stdout  
-__modbusdebug__: enables debug output for libmodbus, can also be specified per meter  
-__poll__: sets the poll interval in seconds  
+__verbose__: sets the verbisity level
+__syslog__: enables messages to syslog instead of stdout
+__modbusdebug__: enables debug output for libmodbus, can also be specified per meter
+__poll__: sets the poll interval in seconds
+__cron__: specifies the default poll interval in a crontab style (see schedule definition)
 
 ### command line only parameters
 
@@ -278,19 +291,40 @@ __poll__: sets the poll interval in seconds
 --formtry
 --scanrtu
 ```
-__configfile__: sets the config file to use, default is ./emModbus2influx.conf  
-**syslogtest**: sends a test message to syslog.  
-**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT  
-**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT  
-**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.  
-**formtryt**: interactively try out a formula for a MeterType  
-**formtry**: interactively try out a formula for a Meter  
+__configfile__: sets the config file to use, default is ./emModbus2influx.conf
+**syslogtest**: sends a test message to syslog.
+**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT
+**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT
+**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.
+**formtryt**: interactively try out a formula for a MeterType
+**formtry**: interactively try out a formula for a Meter
 
 ## Some words about SunSpec
 
-For standard mobus slaves, the register addresses are fixed, however, this is not the case for [SunSpec](https://sunspec.org/) devices. For SunSpec there is a start address (defaults to 40000) pointing to the first block. Each block has an id and a length, the length may vary depending on firmware versions. Register addresses will be specified as an offset within a block.  
+For standard mobus slaves, the register addresses are fixed, however, this is not the case for [SunSpec](https://sunspec.org/) devices. For SunSpec there is a start address (defaults to 40000) pointing to the first block. Each block has an id and a length, the length may vary depending on firmware versions. Register addresses will be specified as an offset within a block.
 emModbus2Influx will resolve the block relative register addresses to absolute addresses at the first query. Therefore if you install a firmware update of aSunSpec device, it may me necessary to restart emModbus2Influx in case some block lengths have been changed by the manufacturer.
 
+# Schedule definitions
+Defines schedule times for querying meters. There is always a default schedule defines by poll= or by cron=. A meter can be part of one or more schedules with schedule="scheduleName"[,..].
+The implementation is based on https://github.com/staticlibs/ccronexpr and is like cron with the addition of the first paramater (seconds).
+Some examples for expressions:
+```
+"0 0 * * * *"          = the top of every hour of every day
+"*/10 * * * * *"       = every ten seconds
+"0 0 8-10 * * *"       = 8, 9 and 10 o'clock of every day
+"0 0/30 8-10 * * *"    = 8:00, 8:30, 9:00, 9:30 and 10 o'clock every day
+"0 0 9-17 * * MON-FRI" = on the hour nine-to-five weekdays
+"0 0 0 25 12 ?"        = every Christmas Day at midnight
+
+```
+From my config file:
+```
+[Schedule]
+#Sensors underfloor heating - Every 15 minutes
+"s_TempFBH" = "0 */15 * * * *"
+#Heatpump every minute
+"s_Heatpump" = "4 */1 * * * *"
+```
 
 # MeterType definitions
 Defines a meter type. A meter type is the base definition and can be used within multiple meters. It defines registers and register options for a modbus device. Registers can be modbus registers, modbus registers plus a formula or formula only registers. Additional formula only registers can be added in a meter definition.
@@ -329,10 +363,13 @@ where the [ has to be the first character of a line. Options that can be specifi
 ```name="NameOfMeter"```
 Mandatory, name of the MeterType. The name is used in a meter definition and is case sensitive.
 
+```type==holding```
+Optional, default=holding. Specifies for all following read= or registers what type of modbus function will be used for reading the data. Valid values are holding or input.
+
 ```read=start,numRegs```
 Optional: non SunSpec, specifies to read numReg (16 bit) registers starting at 'start'. After each read= statement, emModbus2Influx will try to map the reading data to the required registers. This is to avoid unnecessary reads especially for TCP.
-If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slowdown the overall read process.  
-In case there are remaining registers not mapped, single read commands for these registers will be performed.  
+If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slowdown the overall read process.
+In case there are remaining registers not mapped, single read commands for these registers will be performed.
 There is no limit in the number of read= specified in the config file. To make sure all registers are covered by read= stements, start emModbus2influx with dryrun and verbosity level 1:
 ```
 ./emModbus2influx --dryrun --configfile=config_01.conf -v1
@@ -391,11 +428,11 @@ Enables libmodbus debug output for this meter.
 ### Register definitions within MeterTypes
 
 
-for each register,  
-```"RegisterName"=startRegisterNumber_or_SunspecOffset```  
- or  
- ```"name"="Formula"```  
- has to be specified.  
+for each register,
+```"RegisterName"=startRegisterNumber_or_SunspecOffset```
+ or
+ ```"name"="Formula"```
+ has to be specified.
 Registers of this MeterType can be referenced within formulas by using its name, the following sample calculates the maximum of each phase voltage and saves the result in the new register uMax:
 ```
 "uMax"="max(u1,u2,3)"
@@ -470,6 +507,9 @@ where the [ has to be the first character of a line. Options that can be specifi
 ```name="NameOfMeter"```
 Mandatory, name of the Meter. The name is used for InfluxDB as well as MQTT.
 
+```iname="NameOfMeterForInfluxdb"```
+By default, name will be used. However, if you want to write data to an other measurement using a name already in use by a meter, you can overwrite the name used for influxdb.
+
 ```type="NameOfMeterType"```
 Type of the Meter, mandatory if modbus queries are required. The name is case sensitive and requires the MeterType to be defined in the config file before the meter definition. In case the meter consists of formulas only, MeterType is not required.
 
@@ -542,9 +582,10 @@ mqttprefix=home/house/energy/
 name="tempBasement_Simulation"
 "temp"="20+(rnd(10)-5)",iavg,dec=1
 ```
-Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need database, username and password, for InfluxDB 2.x you need org, bucket (like database) and an access token than has to be generated using the InfluxDB gui (via http://influxdbhost:8086 by default)  
+Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need database, username and password, for InfluxDB 2.x you need org, bucket (like database) and an access token than has to be generated using the InfluxDB gui (via http://influxdbhost:8086 by default)
 You can now run emModbus2influx with --dryrun or --dryrun=count to see what would be posted to mqtt and/or influxDB and without --dryrun to post test data to your InfluxDB and/or MQTT.
 ## Define Modbus device
 You need to know what Registers are available as well as the address and type of the register.
 See the included emModbus2influx.conf for samples of several devices.
+
 

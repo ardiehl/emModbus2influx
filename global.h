@@ -19,5 +19,6 @@
 #define BUILD_8
 #endif
 
+#define NANO_PER_SEC 1000000000.0
 
 #endif // GLOBAL_H_INCLUDED

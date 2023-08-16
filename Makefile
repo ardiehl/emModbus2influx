@@ -21,7 +21,7 @@ MAKEDIR        = mkdir -p
 RM             = rm -f
 RMRF           = rm -rf
 COPY           = cp
-ARCH           = $(shell uname -m && mkdir -p obj-`uname -m`/influxdb-post)
+ARCH           = $(shell uname -m && mkdir -p obj-`uname -m`/influxdb-post obj-`uname -m`/ccronexpr)
 SUDO           = sudo
 INSTALLDIR     = /usr/local
 INSTALLDIR_BIN = $(INSTALLDIR)/bin
@@ -31,7 +31,7 @@ SYSTEMD_RELOAD = systemctl daemon-reload
 
 ALLTARGETS = $(TARGETS:=$(TGT))
 
-CPPFLAGS = -fPIE -g0 -O3 -Wall -g -Imqtt$(TGT)/include -DSML_NO_UUID_LIB
+CPPFLAGS = -fPIE -g0 -O3 -Wall -g -Imqtt$(TGT)/include -DMODBUS -Iccronexpr -DSML_NO_UUID_LIB -Wno-format-overflow
 
 # auto generate dependency files
 CPPFLAGS += -MMD
@@ -45,7 +45,7 @@ cleanDebug: clean
 
 LIBS = -lm -lpthread
 OBJDIR       = obj-$(ARCH)$(TGT)
-SOURCES      = $(wildcard *.c influxdb-post/*.c *.cpp)
+SOURCES      = $(wildcard *.c influxdb-post/*.c *.cpp ccronexpr/ccronexpr.c)
 OBJECTS      = $(filter %.o, $(patsubst %.c, $(OBJDIR)/%.o, $(SOURCES)) $(patsubst %.cpp, $(OBJDIR)/%.o, $(SOURCES)))
 MAINOBJS     = $(patsubst %, $(OBJDIR)/%.o,$(TARGETS))
 LINKOBJECTS  = $(filter-out $(MAINOBJS), $(OBJECTS))
@@ -67,7 +67,7 @@ LIBS         += -lpaho-mqtt3c
 endif
 
 ifeq ($(MODBUSSTATIC),1)
-MODBUSVERSION  = 3.1.8
+MODBUSVERSION  = 3.1.10
 MODBUSSRCFILE  = libmodbus-$(MODBUSVERSION).tar.gz
 MODBUSSRC      = https://github.com/stephane/libmodbus/releases/download/v$(MODBUSVERSION)/$(MODBUSSRCFILE)
 MODBUSDIR      = modbus$(TGT)

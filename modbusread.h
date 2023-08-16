@@ -19,6 +19,7 @@ int meterSerialScanrs485 (char * rs485String);
 int meterSerialScanStopbits (char * stopString);
 int meterSerialOpen ();
 void meterSerialClose ();
+int meterSerialGetNumDevices();
 
 modbus_t ** modbusRTU_getmh(int serialPortNum);
 int modbusRTU_getBaudrate(int serialPortNum);
@@ -26,6 +27,12 @@ int modbusRTU_getBaudrate(int serialPortNum);
 void modbusRTU_SilentDelay(int baudrate);
 
 void modbusTCP_freeAll();
+
+void setMeterFvalueInfluxLast (meter_t *meter);
+void setMeterFvalueInflux (meter_t * meter);
+
+void executeMeterFormulas(meter_t * meter);
+void executeInfluxWriteCalc (int verboseMsg, meter_t *meter);
 
 int queryMeter(int verboseMsg, meter_t *meter);
 int queryMeters(int verboseMsg);
