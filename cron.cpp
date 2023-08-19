@@ -443,7 +443,7 @@ int cron_queryMeters(int verboseMsg) {
 	meter = meters;
 	while (meter) {
 		if (! meter->disabled)
-			if (meter->meterHasBeenRead) executeMeterFormulas(meter);
+			if (meter->meterHasBeenRead || (meter->meterType == NULL)) executeMeterFormulas(meter);
 		meter = meter->next;
 	}
 #endif

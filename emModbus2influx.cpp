@@ -160,7 +160,7 @@ void scanAddresses() {
 			}
 			if (reg % 10 == 0) { printf("\r%d ",reg); fflush(stdout); }
 			if (res >= 0) {
-				printf("\r%d: 0x%04x (%d)\n",reg,value,value);
+				printf("\r%d (0x%04x): 0x%04x (%d)\n",reg,reg,value,value);
 				numFound++;
 			}
 			if (verbose && (res <= 0)) printf("\r%d Res:%d (%s)\n",reg,errno,modbus_strerror(errno));
@@ -181,7 +181,7 @@ void scanAddresses() {
 			}
 			if (reg % 10 == 0) { printf("\r%d ",reg); fflush(stdout); }
 			if (res >= 0) {
-				printf("\r%d: 0x%04x (%d)\n",reg,value,value);
+				printf("\r%d (0x%04x): 0x%04x (%d)\n",reg,reg,value,value);
 				numFound++;
 			}
 			if (verbose && (res <= 0)) printf("\r%d Res:%d (%s)\n",reg,errno,modbus_strerror(errno));
@@ -731,7 +731,7 @@ void traceCallback(enum MQTTCLIENT_TRACE_LEVELS level, char *message) {
 }
 
 
-void modbusSendMeterData(double queryTime) {
+void mqttSendMeterData(double queryTime) {
 	int numMeters;
 	meter_t * meter;
 	char statBuf[255];
@@ -741,7 +741,7 @@ void modbusSendMeterData(double queryTime) {
 		numMeters = 0;
 		meter = meters;
 		while(meter) {
-			if (meter->meterHasBeenRead) {
+			if (meter->meterHasBeenRead || (meter->meterType == NULL)) {	// always send for formula only meters
 				mqttSendData (meter,dryrun);
 				numMeters++;
 			}
@@ -957,7 +957,7 @@ int main(int argc, char *argv[]) {
 		meter=meter->next;
 	}
 
-	if (!dryrun) modbusSendMeterData(queryTime);	// initially send all data to mqtt
+	if (!dryrun) mqttSendMeterData(queryTime);	// initially send all data to mqtt
 
 	workerInit(meterSerialGetNumDevices(), dryrun || (verbose>0));
 
@@ -980,7 +980,7 @@ int main(int argc, char *argv[]) {
 				meter = meters;
 				while(meter) {
 					if(!meter->disabled) {
-						if((meter->meterHasBeenRead) && (meter->influxWriteCountdown == 0)) {
+						if((meter->meterHasBeenRead || (meter->meterType == NULL)) && (meter->influxWriteCountdown == 0)) {
 							influxAppendData (meter, influxTimestamp);
 							meter->influxWriteCountdown = meter->influxWriteMult;
 							numMeters++;
@@ -1010,7 +1010,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
-			modbusSendMeterData(queryTime);
+			mqttSendMeterData(queryTime);
 
 			if (dryrun) {
 				dryrun--;
