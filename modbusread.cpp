@@ -1468,7 +1468,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	executeMeterTypeFormulas(verboseMsg,meter);
 #endif
 
-	if (verbose > 1) {	// show values read
+	if (verbose > 2) {	// show values read
 		meterRegisterRead = meter->registerRead;
 		while (meterRegisterRead) {
 			if (meterRegisterRead->isInt) {

@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.09 Armin Diehl <ad@ardiehl.de> Aug 16,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.10 Armin Diehl <ad@ardiehl.de> Aug 21,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -504,6 +504,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	char *measurement;
 	char valBuf[VALBUFLEN];
 	double timeSecs;
+	int numRegs = 0;
 
 	// check if we have something to write
 	if (meter->disabled) return 0;
@@ -526,6 +527,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	// registers from meter type
 	while (rr) {
         if (rr->registerDef->enableMqttWrite) {
+			numRegs++;
             if (rr->registerDef->arrayName) {
                 if (strcmp(arrayName,rr->registerDef->arrayName) != 0) {		// start new array
                     if (strlen(arrayName)) APPEND("]");						// close previous array
@@ -551,6 +553,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	// registers from meter specific formulas
 	while (mf) {
 		if (mf->enableMqttWrite) {
+			numRegs++;
             if (mf->arrayName) {
                 if (strcmp(arrayName,mf->arrayName) != 0) {					// start new array
                     if (strlen(arrayName)) APPEND("]");						// close previous array
@@ -602,7 +605,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	free(buf);
 #endif
 
-	if (mqttstatprefix && meter->registerRead && !meter->meterType->isFormulaOnly) {
+	if (numRegs && mqttstatprefix) { //mqttstatprefix && meter->registerRead && !meter->meterType->isFormulaOnly) {
 		buf = (char *)malloc(bufsize);
 		if (buf == NULL) return -1;
 		*buf=0; buflen=0;
@@ -614,47 +617,57 @@ int mqttSendData (meter_t * meter,int dryrun) {
 			APPEND(measurement); APPEND(".");
 		}
 		APPEND(meter->name);
+		APPEND("\"");
 
-		APPEND("\", \"last\":");
-		timeSecs = meter->queryTimeNano / NANO_PER_SEC;
-		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+		if (!meter->isFormulaOnly) {
+			APPEND(", \"last\":");
+			timeSecs = meter->queryTimeNano / NANO_PER_SEC;
+			snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+			APPEND(valBuf);
+
+			APPEND(", \"avg\":");
+			timeSecs = meter->queryTimeNanoAvg / NANO_PER_SEC;
+			snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+			APPEND(valBuf);
+
+			APPEND(", \"min\":");
+			timeSecs = meter->queryTimeNanoMin / NANO_PER_SEC;
+			snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+			APPEND(valBuf);
+
+			APPEND(", \"max\":");
+			timeSecs = meter->queryTimeNanoMax / NANO_PER_SEC;
+			snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+			APPEND(valBuf);
+
+			APPEND(", \"initial\":");
+			timeSecs = meter->queryTimeNanoInitial / NANO_PER_SEC;
+			snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
+			APPEND(valBuf);
+
+			APPEND(", \"numQueries\":");
+			snprintf(valBuf,VALBUFLEN,"%d",meter->numQueries);
+			APPEND(valBuf);
+
+		}
+
+		APPEND(", \"numInfluxWrites\":");
+		snprintf(valBuf,VALBUFLEN,"%d",meter->numInfluxWrites);
 		APPEND(valBuf);
 
-		APPEND(", \"avg\":");
-		timeSecs = meter->queryTimeNanoAvg / NANO_PER_SEC;
-		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
-		APPEND(valBuf);
-
-		APPEND(", \"min\":");
-		timeSecs = meter->queryTimeNanoMin / NANO_PER_SEC;
-		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
-		APPEND(valBuf);
-
-		APPEND(", \"max\":");
-		timeSecs = meter->queryTimeNanoMax / NANO_PER_SEC;
-		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
-		APPEND(valBuf);
-
-		APPEND(", \"initial\":");
-		timeSecs = meter->queryTimeNanoInitial / NANO_PER_SEC;
-		snprintf(valBuf,VALBUFLEN,"%06.4f",timeSecs);
-		APPEND(valBuf);
-
-		APPEND(", \"numQueries\":");
-		snprintf(valBuf,VALBUFLEN,"%d",meter->numQueries);
+		APPEND(", \"influxWriteCountdown\":");
+		snprintf(valBuf,VALBUFLEN,"%d",meter->influxWriteCountdown);
 		APPEND(valBuf);
 
 		APPEND(", \"numErrs\":");
 		snprintf(valBuf,VALBUFLEN,"%d",meter->numErrs);
 		APPEND(valBuf);
 
-
 		APPEND("}");
 
 		mClient->topicPrefix = mqttstatprefix;
 		mqtt_pub_strF (mClient,meter->name, 0, 0, 1, buf);
 		mClient->topicPrefix = NULL;
-
 	}
 
 	if (meter->mqttDelayMs) msleep(meter->mqttDelayMs);
@@ -685,7 +698,7 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
 		VPRINTFN(2,"%s; influx: no enabled registers",meter->name);
 		return 0;
 	}
-	//printf("%s: InfluxAppendData\n",meter->name);
+	VPRINTFN(2,"%s: InfluxAppendData\n",meter->name);
 
 	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->iname ? meter->iname : meter->name),INFLUX_END);
 	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS"); exit(1); }
@@ -711,16 +724,18 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
 		if (mf->forceType == force_int) {
 			influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(mf->name, (int)mf->fvalueInflux) ,INFLUX_END);
 			if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
+			regCount++;
 		} else {
 			influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_FLT(mf->name, mf->fvalueInflux, mf->decimals), INFLUX_END);
 			if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
+			regCount++;
 		}
 		mf = mf->next;
 	}
 	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_TS(timestamp), INFLUX_END);
 	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
 
-
+	if (regCount) meter->numInfluxWrites++;
 	return regCount;
 }
 
@@ -741,7 +756,7 @@ void mqttSendMeterData(double queryTime) {
 		numMeters = 0;
 		meter = meters;
 		while(meter) {
-			if (meter->meterHasBeenRead || (meter->meterType == NULL)) {	// always send for formula only meters
+			if (meter->meterHasBeenRead || (meter->isFormulaOnly)) {	// always send for formula only meters
 				mqttSendData (meter,dryrun);
 				numMeters++;
 			}
@@ -766,7 +781,6 @@ int main(int argc, char *argv[]) {
 	struct timespec timeStart, timeEnd;
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
 	double queryTime;
-
 	int numMeters;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
@@ -916,10 +930,10 @@ int main(int argc, char *argv[]) {
 
 	if (verbose > 2) {
 		meter = meters;
-		printf("Name                            TCP  Ser serNum schedules\n");
-		printf("---------------------------------------------------------\n");
+		printf("Name                            TCP  Ser serNum schedules f\n");
+		printf("----------------------------------------------------------\n");
 		while(meter) {
-			printf("%-30s %4d %4d   %4d %9d\n",meter->name,meter->isTCP,meter->isSerial,meter->serialPortNum,meter->hasSchedule);
+			printf("%-30s %4d %4d   %4d %9d %d\n",meter->name,meter->isTCP,meter->isSerial,meter->serialPortNum,meter->hasSchedule,meter->isFormulaOnly);
 			meter = meter->next;
 		}
 		printf("\n");
@@ -965,7 +979,8 @@ int main(int argc, char *argv[]) {
 	while (!terminated) {
 		msleep(100);
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
-		rc = cron_queryMeters(dryrun || verbose>0);
+		if (isFirstQuery) rc = 1;
+		else rc = cron_queryMeters(dryrun || verbose>0);
 		if (rc > 0) {
 			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 			loopCount++;
@@ -980,7 +995,7 @@ int main(int argc, char *argv[]) {
 				meter = meters;
 				while(meter) {
 					if(!meter->disabled) {
-						if((meter->meterHasBeenRead || (meter->meterType == NULL)) && (meter->influxWriteCountdown == 0)) {
+						if((meter->meterHasBeenRead || (meter->isFormulaOnly)) && (meter->influxWriteCountdown == 0)) {
 							influxAppendData (meter, influxTimestamp);
 							meter->influxWriteCountdown = meter->influxWriteMult;
 							numMeters++;

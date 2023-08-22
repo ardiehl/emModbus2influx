@@ -384,12 +384,17 @@ int cron_queryMeters(int verboseMsg) {
 		meter = meters;
 		while (meter) {
 			if (meter->isDue) {
-				res = queryMeter(verbose > 0, meter);
-				if (res == 0) {
+				if (meter->isFormulaOnly) {
 					numMeters++;
-					if ((meter->queryTimeNano > 0) && (verboseMsg)) {
-						double timeSecs = meter->queryTimeNano / NANO_PER_SEC;
-						VPRINTFN(1,"%s: query took %06.4f seconds",meter->name, timeSecs);
+					meter->meterHasBeenRead++;
+				} else {
+					res = queryMeter(verbose > 0, meter);
+					if (res == 0) {
+						numMeters++;
+						if ((meter->queryTimeNano > 0) && (verboseMsg)) {
+							double timeSecs = meter->queryTimeNano / NANO_PER_SEC;
+							VPRINTFN(1,"%s: query took %06.4f seconds",meter->name, timeSecs);
+						}
 					}
 				}
 			}
@@ -403,6 +408,10 @@ int cron_queryMeters(int verboseMsg) {
 		// query all TCP meters
 		meter = meters;
 		while (meter) {
+			if (meter->isDue && meter->isFormulaOnly) {
+				numMeters++;
+				meter->meterHasBeenRead++;
+			} else
 			if (meter->isDue && meter->isTCP) {
 				VPRINTFN(4,"TCP: query %s",meter->name);
 				res = queryMeter(verbose > 0, meter);
@@ -443,7 +452,7 @@ int cron_queryMeters(int verboseMsg) {
 	meter = meters;
 	while (meter) {
 		if (! meter->disabled)
-			if (meter->meterHasBeenRead || (meter->meterType == NULL)) executeMeterFormulas(meter);
+			if (meter->meterHasBeenRead || meter->isFormulaOnly) executeMeterFormulas(meter);
 		meter = meter->next;
 	}
 #endif

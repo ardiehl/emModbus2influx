@@ -228,6 +228,7 @@ struct meter_t {
     int disabled;
 	meterRegisterRead_t *registerRead;
 	meterType_t *meterType;
+	int isFormulaOnly;
 	int modbusAddress;
 	char *name;
 	char *iname;
@@ -265,6 +266,8 @@ struct meter_t {
 	unsigned int queryTimeNanoInitial;
 	unsigned int numQueries;	// including errs
 	unsigned int numErrs;
+	unsigned int numInfluxWrites;
+	unsigned int numMqttWrites;
 };
 
 

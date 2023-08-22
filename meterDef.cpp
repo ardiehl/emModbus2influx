@@ -886,6 +886,11 @@ int parseMeter (parser_t * pa) {
 	}
 	if (meter->influxWriteMult) meter->influxWriteCountdown = -1; // meter->influxWriteMult;
 
+	if (meter->meterType) 
+		meter->isFormulaOnly = meter->meterType->isFormulaOnly;
+	else
+		meter->isFormulaOnly = 1;
+
 	meterFormula = meter->meterFormula;
 	while (meterFormula) {
 		if (meterFormula->enableInfluxWrite) meter->numEnabledRegisters_influx++;
