@@ -1071,7 +1071,7 @@ int main(int argc, char *argv[]) {
 	if (ghost && gtoken && gpushid) {
 		gClient = influxdb_post_init_grafana (ghost, gport, gpushid, gtoken);
 	} else
-		LOGN(0,"no grafana host,token or pushid specified, grafana sender disabled");
+		LOGN(0,"no grafana host,token and pushid specified, grafana sender disabled");
 
 
 	if (!mClient->hostname) {
@@ -1236,7 +1236,7 @@ int main(int argc, char *argv[]) {
 						VPRINTFN(2,"nothing to send to grafana");
 					}
 				}
-			} else printf("Grafana disabled\n");
+			}
 
 			mqttSendMeterData(queryTime);
 

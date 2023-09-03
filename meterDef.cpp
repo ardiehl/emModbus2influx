@@ -563,11 +563,6 @@ int parseMeterType (parser_t * pa) {
 					while (mr->next) mr=mr->next;
 					mr->next = meterRegister;
 				} else meterType->meterRegisters = meterRegister;
-
-				// update enabled register count
-				if (meterRegister->enableInfluxWrite) meterType->numEnabledRegisters_influx++;
-				if (meterRegister->enableMqttWrite) meterType->numEnabledRegisters_mqtt++;
-				if (meterRegister->enableGrafanaWrite) meterType->numEnabledRegisters_grafana++;
 				break;
 
 			default:
@@ -710,7 +705,7 @@ int parseMeter (parser_t * pa) {
 				parserExpectEqual(pa,TK_STRVAL);
 				meter->meterType = findMeterType(pa->strVal);
 				if (!meter->meterType) parserError(pa,"undefined meter type ('%s')",pa->strVal);
-				meter->numEnabledRegisters_mqtt = meter->meterType->numEnabledRegisters_mqtt;
+				meter->numEnabledRegisters_mqtt += meter->meterType->numEnabledRegisters_mqtt;
 				meter->numEnabledRegisters_influx += meter->meterType->numEnabledRegisters_influx;
 				meter->numEnabledRegisters_grafana += meter->meterType->numEnabledRegisters_grafana;
 				if (meter->meterType->mqttprefix) {
@@ -941,12 +936,6 @@ int parseMeter (parser_t * pa) {
 		meter->isFormulaOnly = meter->meterType->isFormulaOnly;
 	else
 		meter->isFormulaOnly = 1;
-
-	meterFormula = meter->meterFormula;
-	while (meterFormula) {
-		if (meterFormula->enableInfluxWrite) meter->numEnabledRegisters_influx++;
-		meterFormula = meterFormula->next;
-	}
 
 	return tk;
 }
