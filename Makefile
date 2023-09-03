@@ -11,10 +11,15 @@ MODBUSSTATIC   = 0
 # paho (mqtt) static or dynamic
 PAHOSTATIC     = 0
 
+# libcurl static or dynamic, currently (08/2023) raspberry as well as Fedora 38
+# have versions installed that does not support websockets
+CURLSTATIC = 1
+
 
 TARGETS = emModbus2influx
 
 # OS dependend executables
+MAKE           = make -j4
 WGET           = wget -q --show-progress
 TAR            = tar
 MAKEDIR        = mkdir -p
@@ -28,6 +33,8 @@ INSTALLDIR_BIN = $(INSTALLDIR)/bin
 INSTALLDIR_CFG = $(INSTALLDIR)/etc
 INSTALLDIR_SYS = $(INSTALLDIR)/lib/systemd/system
 SYSTEMD_RELOAD = systemctl daemon-reload
+BZIP2          = bzip2 -d -c
+XZUNPACK       = xz -d -c
 
 ALLTARGETS = $(TARGETS:=$(TGT))
 
@@ -57,7 +64,7 @@ ifeq ($(PAHOSTATIC),1)
 ifeq ($(TGT),-gx)
 MQTTLIBDIR   = mqtt-gx/lib
 else
-MQTTLIBDIR   = mqtt/lib64
+MQTTLIBDIR   = mqtt/lib
 endif
 MQTTLIB      = libpaho-mqtt3c.a
 MQTTLIBP     = $(MQTTLIBDIR)/$(MQTTLIB)
@@ -75,7 +82,7 @@ MODBUSTAR      = $(MODBUSDIR)/$(MODBUSSRCFILE)
 MODBUSMAKEDIR  = $(MODBUSDIR)/libmodbus-$(MODBUSVERSION)
 MODBUSMAKE     = $(MODBUSMAKEDIR)/Makefile
 LIBS          += $(MODBUSLIB)
-CPPFLAGS      += -I$(MODBUSMAKEDIR)/src
+CPPFLAGS      += -I$(MODBUSMAKEDIR)/src -DMODBUS_STATIC
 MODBUSLIB      = $(OBJDIR)/libmodbus.a
 else
 LIBS          += `pkg-config --libs libmodbus`
@@ -94,11 +101,28 @@ MUPARSERMAKEDIR= $(MUPARSERDIR)/muparser-$(MUPARSERVERSION)
 MUPARSERMAKE   = $(MUPARSERMAKEDIR)/Makefile
 MUPARSERLIB    = $(MUPARSERMAKEDIR)/libmuparser.a
 LIBS          += $(MUPARSERLIB)
-CPPFLAGS      += -I$(MUPARSERMAKEDIR)/include
+CPPFLAGS      += -I$(MUPARSERMAKEDIR)/include -DMUPARSER_STATIC
 else
 LIBS          += -lmuparser
 endif
 endif
+
+
+ifeq ($(CURLSTATIC),1)
+CURLVERSION  = 8.2.1
+CURLSRCFILE  = curl-$(CURLVERSION).tar.xz
+CURLSRC      = https://github.com/curl/curl/releases/download/curl-8_2_1/$(CURLSRCFILE)
+CURLDIR      = curl$(ARCH)$(TGT)
+CURLTAR      = $(CURLDIR)/$(CURLSRCFILE)
+CURLMAKEDIR  = $(CURLDIR)/curl-$(CURLVERSION)
+CURLMAKE     = $(CURLMAKEDIR)/Makefile
+CURLLIB      = $(CURLMAKEDIR)/lib/.libs/libcurl.a
+LIBS         += $(CURLLIB) -lz -lssl -lcrypto -lzstd
+CPPFLAGS     += -I$(CURLMAKEDIR)/include -DCURL_STATIC
+else
+LIBS          += -lcurl
+endif
+
 
 
 # include dependencies if they exist
@@ -134,6 +158,7 @@ $(MODBUSTAR):
 	@echo "Downloading $(MODBUSSRC)"
 	@cd $(MODBUSDIR); $(WGET) $(MODBUSSRC)
 
+
 $(MODBUSMAKE):        $(MODBUSTAR)
 	@echo "unpacking $(MODBUSSRCFILE)"
 	@cd $(MODBUSDIR); $(TAR) x --gunzip < $(MODBUSSRCFILE);
@@ -156,14 +181,37 @@ $(MQTTLIBP):
 	@cd paho; ./buildmqtt || exit 1; cd ..
 endif
 
+# ------------------------ libmcurl static -----------------------------------
+ifeq ($(CURLSTATIC),1)
 
-$(OBJDIR)/%.o: %.c $(MODBUSLIB) $(MQTTLIBP) $(MUPARSERLIB)
+$(CURLTAR):
+	@$(MAKEDIR) $(CURLDIR)
+	@echo "Downloading $(CURLSRC)"
+	@cd $(CURLDIR); $(WGET) $(CURLSRC)
+
+$(CURLMAKE):        $(CURLTAR)
+	@echo "unpacking $(CURLSRCFILE)"
+	@cd $(CURLDIR); $(XZUNPACK) $(CURLSRCFILE) | $(TAR) xv
+	@echo "Generating Makefile"
+	@cd $(CURLMAKEDIR); ./configure --without-psl --disable-file --disable-ldap --disable-ldaps --disable-tftp --disable-dict --without-libidn2 --with-openssl --enable-websockets  --disable-ftp --disable-rtsp --disable-telnet --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-manual --disable-ntlm --disable-unix-sockets --disable-cookies --without-brotli
+	@echo
+
+$(CURLLIB): $(CURLMAKE)
+	@echo "Compiling modbus"
+	@$(MAKE) -s -C $(CURLMAKEDIR)
+
+endif
+
+
+
+
+$(OBJDIR)/%.o: %.c $(MODBUSLIB) $(MQTTLIBP) $(MUPARSERLIB) $(CURLLIB)
 	@echo -n "compiling $< to $@ "
 	@$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 	@echo ""
 
 
-$(OBJDIR)/%.o: %.cpp $(MODBUSLIB) $(MQTTLIBP) $(MUPARSERLIB)
+$(OBJDIR)/%.o: %.cpp $(MODBUSLIB) $(MQTTLIBP) $(MUPARSERLIB) $(CURLLIB)
 	@echo -n "compiling $< to $@ "
 	@$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 	@echo ""
@@ -171,7 +219,7 @@ $(OBJDIR)/%.o: %.cpp $(MODBUSLIB) $(MQTTLIBP) $(MUPARSERLIB)
 
 .PRECIOUS: $(TARGETS) $(ALLOBJECTS)
 
-$(ALLTARGETS): $(OBJECTS) $(SMLLIBP) $(MQTTLIBP) $(MODBUSLIB) $(MUPARSERLIB)
+$(ALLTARGETS): $(OBJECTS) $(SMLLIBP) $(MQTTLIBP) $(MODBUSLIB) $(MUPARSERLIB) $(CURLLIB)
 	@echo -n "linking $@ "
 	$(CXX) $(OBJDIR)/$(patsubst %$(TGT),%,$@).o $(LINKOBJECTS) -Wall $(LIBS) -o $@
 	@echo ""
@@ -200,6 +248,9 @@ endif
 ifeq ($(MODBUSSTATIC),1)
 	@$(RMRF) $(MODBUSDIR)
 endif
+ifeq ($(CURLSTATIC),1)
+	@$(RMRF) $(CURLDIR)
+endif
 	rm -rf $(OBJDIR)
 	@echo "cleaned static build dirs"
 
@@ -222,6 +273,10 @@ info:
 	@echo "     MODBUSLIB: $(MODBUSLIB)"
 	@echo "     MODBUSDIR: $(MODBUSDIR)"
 	@echo "     MODBUSTAR: $(MODBUSTAR)"
+	@echo "    CURLSTATIC: $(CURLSTATIC)"
+	@echo "       CURLLIB: $(CURLLIB)"
+	@echo "       CURLDIR: $(CURLDIR)"
+	@echo "       CURLTAR: $(CURLTAR)"
 	@echo "MUPARSERSTATIC: $(MUPARSERSTATIC)"
 	@echo "   MUPARSERLIB: $(MUPARSERLIB)"
 	@echo "   MUPARSERTAR: $(MUPARSERTAR)"

@@ -118,8 +118,8 @@ void modbusTCP_freeAll() {
 
 
 /* msleep(): Sleep for the requested number of milliseconds. */
-int msleep(long msec)
-{
+#if 0
+int msleep(long msec) {
     struct timespec ts;
     int res;
 
@@ -138,7 +138,14 @@ int msleep(long msec)
 
     return res;
 }
+#else
 
+int msleep(long msec) {
+	usleep(msec * 1000);
+	return 0;
+}
+
+#endif
 
 //*****************************************************************************
 
@@ -872,6 +879,7 @@ mu::Parser * initLocalParser(meter_t *meter) {
     parser = new (mu::Parser);
     parser-> DefineNameChars(MUPARSER_ALLOWED_CHARS);
     parser->DefineFun(_T("rnd"), Rnd, false);     // Add an unoptimizeable function
+    parser->DefineVar("__polls",&formulaNumPolls);
     // add all local meter variables using their local name
     registerRead = meter->registerRead;
     while (registerRead) {
@@ -1308,9 +1316,10 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			return -555;
 		}
 	} //else msleep(50);
-	modbus_set_debug(*meter->mb,meter->modbusDebug);
-    modbus_set_slave(*meter->mb,meter->modbusAddress);
-
+	if (meter->mb) {
+		modbus_set_debug(*meter->mb,meter->modbusDebug);
+		modbus_set_slave(*meter->mb,meter->modbusAddress);
+	}
 
 	// reset read flags
 	meter->meterHasBeenRead = 0;

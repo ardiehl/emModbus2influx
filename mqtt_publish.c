@@ -6,10 +6,20 @@
 #include <string.h>
 #include <stdarg.h>
 #include "log.h"
+#include <unistd.h>
 
 MQTTClient_connectOptions conn_optsDefault = MQTTClient_connectOptions_initializer;
 MQTTClient_createOptions createOpsDefault = MQTTClient_createOptions_initializer;
 MQTTClient_message pubmsgDefault = MQTTClient_message_initializer;
+
+void mqtt_pub_yield (mqtt_pubT *m) {
+	if (m)
+		if (m->client) {
+			MQTTClient_yield();
+			return;
+		}
+	usleep(1000*100);	// same as MQTTClient_yield
+}
 
 mqtt_pubT * mqtt_pub_init (const char * hostname, int port, const char *  clientId, const char *topicPrefix) {
 	mqtt_pubT * m;
@@ -26,7 +36,7 @@ mqtt_pubT * mqtt_pub_init (const char * hostname, int port, const char *  client
 	m->conn_opts = conn_optsDefault;
 	m->conn_opts.keepAliveInterval = 30;
     m->conn_opts.cleansession = 1;
-	m->clientId = strdup(clientId);
+	if (clientId) m->clientId = strdup(clientId);
 
 	return m;
 }

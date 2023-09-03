@@ -31,6 +31,7 @@ void modbusTCP_freeAll();
 void setMeterFvalueInfluxLast (meter_t *meter);
 void setMeterFvalueInflux (meter_t * meter);
 
+int executeMeterTypeFormulas(int verboseMsg, meter_t *meter);
 void executeMeterFormulas(meter_t * meter);
 void executeInfluxWriteCalc (int verboseMsg, meter_t *meter);
 

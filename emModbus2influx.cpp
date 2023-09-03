@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.10 Armin Diehl <ad@ardiehl.de> Aug 21,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.12 Armin Diehl <ad@ardiehl.de> Sep 3,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -66,6 +66,7 @@ int queryIntervalSecs = 5;	// seconds
 char *formulaValMeterName;
 int formulaTry;
 int scanRTU;
+int scanRTUReg;
 int modbusDebug;
 influx_client_t *iClient;
 
@@ -75,13 +76,6 @@ mqtt_pubT *mClient;
 
 
 int doTry   = false;
-
-// maximal length of a http line send
-#define INFLUX_BUFLEN 2048
-
-char * influxBuf;
-size_t influxBufUsed;
-int influxBufLen;
 
 #define INFLUX_DEFAULT_MEASUREMENT "energyMeter"
 #define INFLUX_DEFAULT_TAGNAME "Meter"
@@ -103,6 +97,13 @@ int scanAddr;
 int scanInput;
 int scanHolding;
 
+// Grafana Live
+char *ghost;
+int gport = 3000;
+char *gtoken;
+char *gpushid;
+int gUseInfluxMeasurement;
+influx_client_t *gClient;
 
 void scanAddresses() {
 	modbus_t *ctx;
@@ -289,6 +290,13 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'l',"mqttdelay"      ,&mqttDelayMs          ,"delay milliseconds after mqtt publish")
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
 		AP_OPT_STRVAL       (1,'i',"mqttclientid"   ,&mClient->clientId    ,"mqtt client id")
+
+		AP_OPT_STRVAL       (1,0  ,"ghost"          ,&ghost                ,"grafana server url w/o port, e.g. ws://localost or https://localhost")
+		AP_OPT_INTVAL       (1,0  ,"gport"          ,&gport                ,"grafana port")
+		AP_OPT_STRVAL       (1,0  ,"gtoken"         ,&gtoken               ,"authorisation api token for Grafana")
+		AP_OPT_STRVAL       (1,0  ,"gpushid"        ,&gpushid              ,"push id for Grafana")
+		AP_OPT_INTVAL       (1,0  ,"ginfluxmeas"    ,&gUseInfluxMeasurement,"use influx measurement names for grafana as well")
+
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
 		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
@@ -303,6 +311,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_STRVAL       (0, 0 ,"formtryt"       ,&formulaValMeterName  ,"interactive try out formula for register values for a given meter name")
 		AP_OPT_INTVALF      (0, 0 ,"formtry"        ,&formulaTry           ,"interactive try out formula (global for formulas in meter definition)")
 		AP_OPT_INTVALF      (1, 0 ,"scanrtu"        ,&scanRTU              ,"scan for modbus rtu devices")
+		AP_OPT_INTVAL       (1, 0 ,"scanreg"        ,&scanRTUReg           ,"register to be used for scanrtu")
 		AP_OPT_INTVALF      (1, 0 ,"scan"           ,&scan                 ,"scan a device for available registers")
 		AP_OPT_INTVAL       (1, 0 ,"scanstart"      ,&scanStart            ,"register to start scan with")
 		AP_OPT_INTVAL       (1, 0 ,"scanend"        ,&scanEnd              ,"register to end scan with")
@@ -416,7 +425,7 @@ void appendToStr (const char *src, char **dest, int *len, int *bufsize) {
 	if (*src == 0) return;
 
 	srclen = strlen(src);
-	if (*len + srclen + 1 > *bufsize) {
+	while (*len + srclen + 1 > *bufsize) {
 		*bufsize *= 2;
 		//printf("Realloc to %d, len=%d, srclen: %d %x %x %s\n",*bufsize,*len,srclen,dest,*dest,*dest);
 		*dest = (char *)realloc(*dest,*bufsize);
@@ -594,7 +603,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
         if (doWrite) {
             mClient->topicPrefix = meter->mqttprefix;
             rc = mqtt_pub_strF (mClient,meter->name, 0, meter->mqttQOS,meter->mqttRetain, buf);
-            if (rc != MQTTCLIENT_SUCCESS && rc != MQTT_RECONNECTED) LOGN(0,"mqtt publish failed with rc: %d",rc);
+            if (rc != MQTTCLIENT_SUCCESS && rc != MQTT_RECONNECTED) LOGN(0,"mqtt publish failed with rc: %d (connected=%d)",rc,MQTTClient_isConnected(mClient->client));
             mClient->topicPrefix = NULL;
         }
 	}
@@ -677,10 +686,11 @@ int mqttSendData (meter_t * meter,int dryrun) {
 
 
 
-int influxAppendData (meter_t *meter, uint64_t timestamp) {
+int influxAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 	meterRegisterRead_t *rr;
 	meterFormula_t *mf;
 	int regCount = 0;
+	int rc;
 
 	// use the global measurement or the one from the meter (if defined)
 	char * measurement = influxMeasurement;
@@ -700,18 +710,18 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
 	}
 	VPRINTFN(2,"%s: InfluxAppendData\n",meter->name);
 
-	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->iname ? meter->iname : meter->name),INFLUX_END);
-	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS"); exit(1); }
+	rc = influxdb_format_line(c, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->iname ? meter->iname : meter->name),INFLUX_END);
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS"); exit(1); }
 
     rr = meter->registerRead;
 	while (rr) {
         if (rr->registerDef->enableInfluxWrite) {
             if (rr->isInt || rr->registerDef->forceType == force_int) {
-                influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
-                if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
+                rc = influxdb_format_line(c, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
+                if (rc< 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
             } else {
-                influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_FLT(rr->registerDef->name, rr->fvalueInflux, rr->registerDef->decimals), INFLUX_END);
-                if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
+                rc = influxdb_format_line(c, INFLUX_F_FLT(rr->registerDef->name, rr->fvalueInflux, rr->registerDef->decimals), INFLUX_END);
+                if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
             }
         }
         regCount++;
@@ -721,22 +731,178 @@ int influxAppendData (meter_t *meter, uint64_t timestamp) {
 	// meter specific register formulas
 	mf = meter->meterFormula;
 	while (mf) {
-		if (mf->forceType == force_int) {
-			influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_INT(mf->name, (int)mf->fvalueInflux) ,INFLUX_END);
-			if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
-			regCount++;
-		} else {
-			influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_F_FLT(mf->name, mf->fvalueInflux, mf->decimals), INFLUX_END);
-			if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
-			regCount++;
+		if (mf->enableInfluxWrite) {
+			if (mf->forceType == force_int) {
+				rc = influxdb_format_line(c, INFLUX_F_INT(mf->name, (int)mf->fvalueInflux) ,INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
+				regCount++;
+			} else {
+				rc = influxdb_format_line(c, INFLUX_F_FLT(mf->name, mf->fvalueInflux, mf->decimals), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
+				regCount++;
+			}
 		}
 		mf = mf->next;
 	}
-	influxBufUsed = influxdb_format_line(&influxBuf, &influxBufLen, influxBufUsed, INFLUX_TS(timestamp), INFLUX_END);
-	if (influxBufUsed < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
+	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
 
 	if (regCount) meter->numInfluxWrites++;
 	return regCount;
+}
+
+
+#define CHANNEL_MAX_LEN 140
+int grafanaAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
+	meterRegisterRead_t *rr;
+	meterFormula_t *mf;
+	int regCount = 0;
+	int rc;
+	char channelName[255];
+
+	// check if we have something to write
+	if (meter->disabled) {
+		VPRINTFN(2,"%s; grafana: meter is disabled");
+		return 0;
+	}
+	if (! meter->numEnabledRegisters_grafana) {
+		VPRINTFN(2,"%s; grafana: no enabled registers",meter->name);
+		return 0;
+	}
+	VPRINTFN(2,"%s: grafanaAppendData",meter->name);
+
+	memset(channelName,0,sizeof(channelName));
+	if (gUseInfluxMeasurement) {
+		if (meter->influxMeasurement) strncpy(channelName,meter->influxMeasurement,CHANNEL_MAX_LEN);
+		else strncpy(channelName,influxMeasurement,CHANNEL_MAX_LEN);
+		if (strlen(channelName)) strncat(channelName,"/",CHANNEL_MAX_LEN);
+	}
+	strncat(channelName,meter->gname?meter->gname:meter->name,CHANNEL_MAX_LEN);
+
+	rc = influxdb_format_line(c, INFLUX_MEAS(channelName), INFLUX_END);
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS (grafana)"); exit(1); }
+
+    rr = meter->registerRead;
+	while (rr) {
+        if (rr->registerDef->enableGrafanaWrite) {
+            if (rr->isInt || rr->registerDef->forceType == force_int) {
+                rc = influxdb_format_line(c, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
+                if (rc< 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
+            } else {
+                rc = influxdb_format_line(c, INFLUX_F_FLT(rr->registerDef->name, rr->fvalueInflux, rr->registerDef->decimals), INFLUX_END);
+                if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
+            }
+        } //else printf("%s %s: disabled for Grafana\n",meter->name,rr->registerDef->name);
+        regCount++;
+		rr = rr->next;
+	}
+
+	// meter specific register formulas
+	mf = meter->meterFormula;
+	while (mf) {
+		if (mf->enableGrafanaWrite) {
+			if (mf->forceType == force_int) {
+				rc = influxdb_format_line(c, INFLUX_F_INT(mf->name, (int)mf->fvalueInflux) ,INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
+				regCount++;
+			} else {
+				rc = influxdb_format_line(c, INFLUX_F_FLT(mf->name, mf->fvalueInflux, mf->decimals), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
+				regCount++;
+			}
+		} //else printf("%s, meter formula field %s disabled for Grafana\n",meter->name,mf->name);
+		mf = mf->next;
+	}
+	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
+
+	if (regCount) meter->numGrafanaWrites++;
+	return regCount;
+}
+
+int test;
+
+int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
+	char channelName[255];
+	char fieldName[255];
+	int rc;
+	meter_t * meter = meters;
+	int meterCount = 0;
+	int len;
+	double timeSecs;
+	int statCount = 0;
+
+	// check if we have something to write
+	//TODO
+
+	test++;
+
+	memset(channelName,0,sizeof(channelName));
+	if (gUseInfluxMeasurement) {
+		strncpy(channelName,influxMeasurement,CHANNEL_MAX_LEN);
+		if (strlen(channelName)) strncat(channelName,"/",CHANNEL_MAX_LEN);
+	}
+	strncat(channelName,"_STATISTICS",CHANNEL_MAX_LEN);
+
+	rc = influxdb_format_line(c, INFLUX_MEAS(channelName), INFLUX_END);
+	while (meter) {
+		if (!meter->disabled) {
+			if (meter->isTCP || meter->isSerial) {
+				statCount++;
+				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"last");
+				if (len >= (int)(sizeof(fieldName)-1)) {
+					EPRINTF("Buffer overflow in grafanaAppendStat, meter: %s",meter->name);
+					exit(1);
+				}
+				timeSecs = meter->queryTimeNano / NANO_PER_SEC;
+				rc = influxdb_format_line(c, INFLUX_F_FLT(fieldName, timeSecs, 3), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+
+				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"min");
+				if (len >= (int)(sizeof(fieldName)-1)) {
+					EPRINTF("Buffer overflow in grafanaAppendStat, meter: %s",meter->name);
+					exit(1);
+				}
+				timeSecs = meter->queryTimeNanoMin / NANO_PER_SEC;
+				rc = influxdb_format_line(c, INFLUX_F_FLT(fieldName, timeSecs, 3), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+
+				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"max");
+				if (len >= (int)(sizeof(fieldName)-1)) {
+					EPRINTF("Buffer overflow in grafanaAppendStat, meter: %s",meter->name);
+					exit(1);
+				}
+				timeSecs = meter->queryTimeNanoMax / NANO_PER_SEC;
+				rc = influxdb_format_line(c, INFLUX_F_FLT(fieldName, timeSecs, 3), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+
+				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"avg");
+				if (len >= (int)(sizeof(fieldName)-1)) {
+					EPRINTF("Buffer overflow in grafanaAppendStat, meter: %s",meter->name);
+					exit(1);
+				}
+				timeSecs = meter->queryTimeNanoAvg / NANO_PER_SEC;
+				rc = influxdb_format_line(c, INFLUX_F_FLT(fieldName, timeSecs, 3), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+
+				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"initial");
+				if (len >= (int)(sizeof(fieldName)-1)) {
+					EPRINTF("Buffer overflow in grafanaAppendStat, meter: %s",meter->name);
+					exit(1);
+				}
+				timeSecs = meter->queryTimeNanoInitial / NANO_PER_SEC;
+				rc = influxdb_format_line(c, INFLUX_F_FLT(fieldName, timeSecs, 3), INFLUX_END);
+				if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+			}
+		}
+		meter = meter->next;
+	}
+
+	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d , INFLUX_TS",rc); exit(1); }
+	LOGN(2,"%d stat lines posted to Grafana",statCount);
+
+	return meterCount;
 }
 
 
@@ -782,6 +948,7 @@ int main(int argc, char *argv[]) {
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
 	double queryTime;
 	int numMeters;
+	extern double formulaNumPolls;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
 
@@ -849,7 +1016,7 @@ int main(int argc, char *argv[]) {
 		for (i=1;i<254;i++) {
 			printf("\r%d ",i); fflush(stdout);
 			modbus_set_slave(*mb,i);
-			rc = modbus_read_registers(*mb, 0,1,&regValue);
+			rc = modbus_read_registers(*mb, scanRTUReg,1,&regValue);
 			if (rc == 1) rc = 0;
 			if (rc == -1) rc = errno;
 			VPRINTFN(1,"modbus_read_registers for slave %d returned %d (%s)",i,rc,modbus_strerror(rc));
@@ -901,19 +1068,29 @@ int main(int argc, char *argv[]) {
 
 	if (!iClient) LOGN(0,"no influxdb host specified, influx sender disabled");
 
+	if (ghost && gtoken && gpushid) {
+		gClient = influxdb_post_init_grafana (ghost, gport, gpushid, gtoken);
+	} else
+		LOGN(0,"no grafana host,token or pushid specified, grafana sender disabled");
+
 
 	if (!mClient->hostname) {
 		mqtt_pub_free(mClient);
 		mClient = NULL;
 		LOGN(0,"no mqtt host specified, mqtt sender disabled");
-		if (!iClient) {
-			EPRINTFN("No mqtt host and no influxdb host specified, specify one or both");
+		if (!iClient && !gClient) {
+			EPRINTFN("No MQTT, Influxdb and Grafana host specified, specify at least one");
 			exit(1);
 		}
 	} else {
-		rc = mqtt_pub_connect (mClient);
-		if (rc != 0) LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
+		if (!dryrun) {
+			rc = mqtt_pub_connect (mClient);
+			printf("mqtt connect: %d\n",rc);
+			if (rc != 0) LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
+		}
 	}
+
+
 
 	if (doTry) {
 	    if (!serDevice) {
@@ -930,10 +1107,10 @@ int main(int argc, char *argv[]) {
 
 	if (verbose > 2) {
 		meter = meters;
-		printf("Name                            TCP  Ser serNum schedules f\n");
-		printf("----------------------------------------------------------\n");
+		printf("Name                            TCP  Ser serNum schedules fo numM numI numG\n");
+		printf("---------------------------------------------------------------------------\n");
 		while(meter) {
-			printf("%-30s %4d %4d   %4d %9d %d\n",meter->name,meter->isTCP,meter->isSerial,meter->serialPortNum,meter->hasSchedule,meter->isFormulaOnly);
+			printf("%-30s %4d %4d   %4d %9d  %d %4d %4d %4d\n",meter->name,meter->isTCP,meter->isSerial,meter->serialPortNum,meter->hasSchedule,meter->isFormulaOnly,meter->numEnabledRegisters_mqtt,meter->numEnabledRegisters_influx,meter->numEnabledRegisters_grafana);
 			meter = meter->next;
 		}
 		printf("\n");
@@ -955,6 +1132,7 @@ int main(int argc, char *argv[]) {
 	rc = queryMeters(verbose);
 	clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 	queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+	formulaNumPolls++;
 	if (dryrun || (verbose>0))
 			printf("Initial query took %4.2f seconds\n",queryTime);
 	if (rc <= 0) {
@@ -977,11 +1155,15 @@ int main(int argc, char *argv[]) {
 
 	int loopCount = 0;
 	while (!terminated) {
-		msleep(100);
+		mqtt_pub_yield (mClient); 					// for mqtt ping, seeps for 100ms if no mqqt specified
+		if (gClient) influxdb_post_http(iClient);	// for websocket ping
+		//msleep(200);
+		//printf("."); fflush(stdout);
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
 		if (isFirstQuery) rc = 1;
 		else rc = cron_queryMeters(dryrun || verbose>0);
 		if (rc > 0) {
+			formulaNumPolls++;
 			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 			loopCount++;
 			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
@@ -989,14 +1171,14 @@ int main(int argc, char *argv[]) {
 				printf("Query %d took %4.2f seconds\n",loopCount,queryTime);
 
 			if (iClient) {		// influx
-				influxBufUsed = 0; influxBuf=NULL;
+				influxdb_post_freeBuffer(iClient);
 				influxTimestamp = influxdb_getTimestamp();
 				numMeters = 0;
 				meter = meters;
 				while(meter) {
 					if(!meter->disabled) {
 						if((meter->meterHasBeenRead || (meter->isFormulaOnly)) && (meter->influxWriteCountdown == 0)) {
-							influxAppendData (meter, influxTimestamp);
+							influxAppendData (iClient, meter, influxTimestamp);
 							meter->influxWriteCountdown = meter->influxWriteMult;
 							numMeters++;
 						} else {
@@ -1006,14 +1188,13 @@ int main(int argc, char *argv[]) {
 					meter = meter->next;
 				}
 				if (dryrun) {
-					if (influxBuf) {
-						printf("\nDryrun: would send to influxdb:\n%s\n",influxBuf);
-						free(influxBuf); influxBuf = NULL;
+					if (iClient->influxBufLen) {
+						printf("\nDryrun: would send to influxdb:\n%s\n",iClient->influxBuf);
+						influxdb_post_freeBuffer(iClient);
 					}
 				} else {
-					if (influxBuf) {
-						rc = influxdb_post_http_line(iClient, influxBuf);
-						influxBuf=NULL;
+					if (iClient->influxBufLen) {
+						rc = influxdb_post_http_line(iClient);
 						if (rc != 0) {
 							EPRINTFN("Error: influxdb_post_http_line failed with rc %d",rc);
 						} else {
@@ -1024,6 +1205,38 @@ int main(int argc, char *argv[]) {
 					}
 				}
 			}
+
+			if (gClient) {		// grafana
+				influxdb_post_freeBuffer(gClient);
+				influxTimestamp = influxdb_getTimestamp();
+				numMeters = 0;
+				meter = meters;
+				while(meter) {
+					if(!meter->disabled) {
+						grafanaAppendData (gClient, meter, influxTimestamp);
+						numMeters++;
+					}
+					meter = meter->next;
+				}
+				grafanaAppendStat (gClient, influxTimestamp);
+				if (dryrun) {
+					if (gClient->influxBufLen) {
+						printf("\nDryrun: would send to grafana:\n%s\n",gClient->influxBuf);
+						influxdb_post_freeBuffer(gClient);
+					} else printf("nothing to be posted to Grafana\n");
+				} else {
+					if (gClient->influxBufLen) {
+						rc = influxdb_post_http_line(gClient);
+						if (rc != 0) {
+							EPRINTFN("Error: influxdb_post_http_line to grafana failed with rc %d",rc);
+						} else {
+							VPRINTFN(1,"%d lines posted to grafana",numMeters);
+						}
+					} else {
+						VPRINTFN(2,"nothing to send to grafana");
+					}
+				}
+			} else printf("Grafana disabled\n");
 
 			mqttSendMeterData(queryTime);
 

@@ -42,6 +42,7 @@
 #define TK_SF              503
 #define TK_MQTT            504
 #define TK_INFLUX          505
+#define TK_GRAFANA         506
 #define TK_REGOPTILAST     549
 
 
@@ -84,6 +85,8 @@
 #define TK_INAME           627
 #define TK_INPUT           628
 #define TK_HOLDING         629
+#define TK_GNAME           630
+
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -158,6 +161,7 @@ struct meterRegister_t {
 	int decimals;
 	int enableInfluxWrite;
 	int enableMqttWrite;
+	int enableGrafanaWrite;
 	influxMultProcessing_t influxMultProcessing;
 };
 
@@ -171,6 +175,7 @@ struct meterType_t {
 	meterRegister_t *meterRegisters;
 	int numEnabledRegisters_mqtt;
 	int numEnabledRegisters_influx;
+	int numEnabledRegisters_grafana;
 
 	uint16_t sunspecBaseAddr;
 	meterInit_t * init;
@@ -215,6 +220,7 @@ struct meterFormula_t {
 	int decimals;
 	int enableInfluxWrite;
 	int enableMqttWrite;
+	int enableGrafanaWrite;
     double fvalue;
     double fvalueInflux;
     double fvalueInfluxLast;
@@ -232,6 +238,7 @@ struct meter_t {
 	int modbusAddress;
 	char *name;
 	char *iname;
+	char *gname;
 	int meterHasBeenRead;
 	int hasSchedule;
 	int isDue;
@@ -250,6 +257,7 @@ struct meter_t {
 	meterFormula_t * meterFormula;
 	int numEnabledRegisters_mqtt;
 	int numEnabledRegisters_influx;
+	int numEnabledRegisters_grafana;
 	int mqttQOS;
 	int mqttRetain;
 	int mqttDelayMs;
@@ -268,6 +276,7 @@ struct meter_t {
 	unsigned int numErrs;
 	unsigned int numInfluxWrites;
 	unsigned int numMqttWrites;
+	unsigned int numGrafanaWrites;
 };
 
 

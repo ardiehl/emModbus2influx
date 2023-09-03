@@ -1,11 +1,11 @@
 # emModbus2influx
-## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT
+## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT and/or Grafana Live
 
 ### Definitions
 - **MeterType** - a definition of the registers,  register types and more of a specific type of modbus slave
 - **Meter** - a definition of a physical modbus RTU or TCP slave based on a MeterType
 
-It is named meter because it was originally used to query energy meters but in fact it can query any modbus slave. I'm using it for energy meters, Fronius solar inverters as well as Victron Energy GX.
+It is named meter because it was originally used to query energy meters but in fact it can query any modbus TCP or RTU slave. I'm using it for energy meters, Fronius solar inverters as well as Victron Energy GX.
 ### Features
 
  - modbus RTU via serial port (multiple serial ports are supported as well)
@@ -13,14 +13,15 @@ It is named meter because it was originally used to query energy meters but in f
  - supports SUNSPEC meter definitions (tested with Fronius Symo)
  - supports formulas for changing values after read or for defining new fields (in the metertype as well as in the meter definition)
  - MQTT data is written on every query to have near realtime values (if MQTT is enabled), InfluxDB writes can be restricted to n queries where you can specify for each field if max,min or average values will be posted to InfluxDB
- - Virtual devices=Meters can be defined, these can post values from different Modbus slaves to MQTT and/or InfluxDB
- - Using formulas and virtual meters without any Modbus device, test data for MQTT and/or InfluxDB can be generated (example: config-02.conf)
+ - Virtual devices=Meters can be defined, these can post values from different Modbus slaves to MQTT and/or InfluxDB and(or Grafana Live
+ - Using formulas and virtual meters without any Modbus device, test data for MQTT and/or InfluxDB and/or Grafana Live can be generated (example: config-02.conf)
  - supports dryrun for testing definitions
  - supports interactive formula testing
  - use of [libmodbus](https://libmodbus.org/) for modbus TCP/RTU communication
  - use of [paho-c](https://github.com/eclipse/paho.mqtt.c) for MQTT
  - use of [muparser](https://beltoforion.de/en/muparser/) for formula parsing
  - use of [ccronexpr](https://github.com/staticlibs/ccronexpr) for scheduling using cron expressions
+ - use of libcurl for http,https,ws and wss
  - libmodbus,paho-c and muparser can by dynamic linked (default) or downloaded, build and linked static automatically when not available on target platform, e.g. Victron Energy Cerbox GX (to be set at the top of Makefile)
  - unlimited number of Serial ports, MeterTypes, Meters and Modbus TCP slaves
 
@@ -151,6 +152,11 @@ Long command line options requires to be prefixed with -- while as in the config
   -l, --mqttdelay=        delay milliseconds after mqtt publish (0)
   -r, --mqttretain=       default mqtt retain, can be changed for meter (1)
   -i, --mqttclientid=     mqtt client id (emModbus2influx)
+  --ghost=                grafana server url w/o port, e.g. ws://localost or https://localhost
+  --gport=                grafana port (3000)
+  --gtoken=               authorisation api token for Grafana
+  --gpushid=              push id for Grafana
+  --ginfluxmeas=          use influx measurement names for grafana as well (0)
   -v, --verbose[=]        increase or set verbose level
   -G, --modbusdebug       set debug for libmodbus
   -P, --poll=             poll intervall in seconds
@@ -205,8 +211,13 @@ tagname=Meter
 cache=1000
 ```
 
-If __server__ is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT only).
-tagname will be the tag used for posting to Influxdb.
+If __server__ is not specified, post to InfluxDB will be disabled at all (if you would like to use MQTT and/or Grafana Live only). Default is http://. To use SSL prefix the hostname by https://, e.g.
+```
+server=https://myinfluxhost.mydomain.de
+port=8086
+```
+
+__tagname__ will be the tag used for posting to Influxdb.
 __port__ is the IP port number and defaults to 8086
 __cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.
 __measurement__ sets the default measurement and can be overriden in a meter type or in a meter definition.
@@ -230,6 +241,43 @@ bucket=
 org=
 token=
 ```
+### Grafana Live
+Grafana Live is tested with http and ws (Websockets) but should work with https and wss as well. For best performance and lowest overhead, ws:// should be the perferred protocol.
+Websocket support, is at the time of writing (07/2023) still beta but seems to work fine. However, current distributions like Fedora 39 or Raspberry (Debian 11 (bullseye)) ships with a shared libcurl that do not support websockets. If you try to use websockets with a shared libcurl and websockets are not supported, emModbus2influx will try fallback to http or https:.
+To use websockets, static linking of libcurl can be enabled in Makefile. The Makefile will download a current version of curl and will configure, compile and link this version.
+In this is may be required to install additional devel packages required by curl. These are the packages i needed to compile on Debian
+```
+sudo apt install libmuparser-dev libmuparser2v5 libmodbus-dev libmodbus5 libreadline-dev libpaho-mqtt-dev libpaho-mqtt1.3 libzstd-dev zstd libssl-dev
+```
+Required parameter
+__ghost__ url of the Grafana server without port, e.g. ws://localhost
+__gtoken__ token for authentication, at the time of writing (Grafana 10.1.1 OSS) a service account with the role "Admin"is required.
+__gpushid__ the push id. Data is pushed to Grafana using
+```
+ServerAddr:port/api/live/push/gpushid
+```
+and this will show up in Grafana live as
+```
+stream/gpushid
+```
+By default, this will be postfixed by the name of the meter, e.g.
+```
+stream/gpushid/myMeterName
+```
+In case
+```
+ginfluxmeas=1
+```
+is specified, the given name for the Influxdb measurement is included as
+```
+stream/gpushid/measurement/myMeterName
+```
+However, you can overwrite meterName using
+```
+gname=
+```
+in a meter definition ether with or without ginfluxmeas=1.
+__gpushid__ can specified only once and can not be changed by meter. This is because it is part of the path specified in http push. After converting the http connection to a Websocket, there is not way to change that.
 
 ### MQTT
 
@@ -426,8 +474,6 @@ Defines register values sent for initialization. Value is the same as for settar
 Enables libmodbus debug output for this meter.
 
 ### Register definitions within MeterTypes
-
-
 for each register,
 ```"RegisterName"=startRegisterNumber_or_SunspecOffset```
  or
@@ -489,16 +535,91 @@ Register offset for sunspec scaling factor
 The result of the formula will be the new value. The current value as well as the values of other registers can be accessed by its name. Formulas will be executed after all registers within a meter has been read.
 
 ```influx=```
-0 or 1, 0 will disable this register for influxdb. The default if influx= is not specified is 1.
+0 or 1, 0 will disable this register for Influxdb. The default if influx= is not specified is 1.
 
 ```mqtt=```
-0 or 1, 0 will disable this register for influxdb. The default if influx= is not specified is 1.
+0 or 1, 0 will disable this register for Influxdb. The default if influx= is not specified is 1.
+```grafana=```
+0 or 1, 0 will disable this register for Grafana. The default if influx= is not specified is 1.
 
 ```imax```
 ```imin```
 ```iavg```
 When using influxwritemult= , these options specify if the maximun, minimum or the average value will be written to influxdb.
+### Virtual MeterTypes
+Virtual meter types are types with formula fields only. These types are useful for testing when no physical modbus devices are available and you want to test writing to Influx/MQTT or Grafana. A global variable _xxx reflecting the current query number as well as a random function is available.
+Example:
+```
+# test for posting to local servers using virtual meter(s)
+measurement=test1                                       # Influx default measuement
+server=localhost                                        # Influx server
+org=test                                                # Influx org
+bucket=test1                                            # Influx bucket
+tagname=Device                                          # # influx tag
+token=xwrwerkhkwrh
 
+ghost=ws://localhost                                    # Grafana host
+gtoken=gkjfhbsjf																			s# admin token
+gpushid=house                                           # push id
+
+mqttserver=localhost                                    # MQTT host
+mqttport=1883                                           # port
+mqttprefix=ad/house/energy/                             # prefix
+
+poll=5                                                  # poll seconds as an alternative to cron
+                                                        # meter types
+[MeterType]
+name="Live1Type"                                        # name of the type, case sensitive
+"value"="20+(rnd(1))",dec=2                             # some random
+"count"="__polls",force=int,influx=0                    # values
+"count_neg" = "__polls*-1",grafana=0,mqtt=0             # and the inverted one to influx only
+influxwritemult=2
+
+[Meter]
+name="m1"                                               # the first meter named m1
+type="Live1Type"
+gname="test/m1"                                         # showing in Grafana as stream/house/test/m1
+
+[Meter]
+name="m2"                                               # showing in Grafana as stream/house/m2
+type="Live1Type"
+"value_m2"="20+(rnd(__polls))",dec=2                    # some field added to the meter type definition
+```
+When starting emModbus2influx with --dryrun or --dryrun=y, no connections or host name resolutions to Influx, MQTT or Grafana will be initiated so the specified hostnames do not matter at all. Results of the config file shown above:
+```
+./emModbus2influx --configfile=testlocal.conf --dryrun=2
+```
+```
+mainloop started (emModbus2influx 1.10 Armin Diehl <ad@ardiehl.de> Aug 21,2023 compiled Sep  1 2023 21:19:08 )
+performing initial query for all meters
+Initial query took 0.00 seconds
+Initial query: 2 meters
+
+Dryrun: would send to influxdb:
+test1,Device=m1 value=20.84,count_neg=0 1693596165235402135
+test1,Device=m2 value=20.39,count_neg=0,value_m2=20.00 1693596165235402135
+
+Dryrun: would send to grafana:
+test/m1 value=20.84,count=0i 1693596165235488052
+m2 value=20.39,count=0i,value_m2=20.00 1693596165235488052
+
+Dryrun: would send to mqtt:
+ad/house/energy/m1 {"name":"test1.m1", "value":20.84, "count":0}
+ad/house/energy/m2 {"name":"test1.m2", "value":20.39, "count":0, "value_m2":20.00}
+- 1 -----------------------------------------------------------------------
+Query 2 took 0.00 seconds
+
+Dryrun: would send to grafana:
+test/m1 value=20.80,count=2i 1693596170051243413
+m2 value=20.91,count=2i,value_m2=20.40 1693596170051243413
+
+Dryrun: would send to mqtt:
+ad/house/energy/m1 {"name":"test1.m1", "value":20.80, "count":2}
+ad/house/energy/m2 {"name":"test1.m2", "value":20.91, "count":2, "value_m2":20.40}
+- 2 -----------------------------------------------------------------------
+terminated
+```
+Btw, the time send to Influxdb will be identical for all meters queried at one run.
 # Meter definitions
 Each meter definition starts with
 ```[Meter]```
@@ -587,5 +708,6 @@ You can now run emModbus2influx with --dryrun or --dryrun=count to see what woul
 ## Define Modbus device
 You need to know what Registers are available as well as the address and type of the register.
 See the included emModbus2influx.conf for samples of several devices.
+
 
 

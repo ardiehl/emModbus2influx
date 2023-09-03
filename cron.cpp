@@ -387,6 +387,9 @@ int cron_queryMeters(int verboseMsg) {
 				if (meter->isFormulaOnly) {
 					numMeters++;
 					meter->meterHasBeenRead++;
+#ifndef DISABLE_FORMULAS
+				executeMeterTypeFormulas(verbose>2,meter);
+#endif
 				} else {
 					res = queryMeter(verbose > 0, meter);
 					if (res == 0) {
@@ -411,6 +414,9 @@ int cron_queryMeters(int verboseMsg) {
 			if (meter->isDue && meter->isFormulaOnly) {
 				numMeters++;
 				meter->meterHasBeenRead++;
+#ifndef DISABLE_FORMULAS
+				executeMeterTypeFormulas(verbose>2,meter);
+#endif
 			} else
 			if (meter->isDue && meter->isTCP) {
 				VPRINTFN(4,"TCP: query %s",meter->name);
