@@ -1156,7 +1156,7 @@ int main(int argc, char *argv[]) {
 	int loopCount = 0;
 	while (!terminated) {
 		mqtt_pub_yield (mClient); 					// for mqtt ping, seeps for 100ms if no mqqt specified
-		if (gClient) influxdb_post_http(iClient);	// for websocket ping
+		if (gClient) influxdb_post_http(gClient);	// for websocket ping
 		//msleep(200);
 		//printf("."); fflush(stdout);
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);

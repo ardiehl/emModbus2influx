@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# simple script to check if there are data written to influxdb from
+# ruuvimqtt2influx, emmbus2influx and emModbus2influx
+# requires the influx tool to be configured including creditentials
+# Will be scheduled via cron as root and cron will send eMail on failures
+# AD 04.09.2023
+
+BUCKET=ad
+VERBOSE=0
+
+function doQuery() {
+	local QUERY=$(
+cat << EOF
+from(bucket: "$BUCKET")
+  |> range(start:$1)
+  |> filter(fn: (r) => r["_measurement"] == "$2")
+  |> filter(fn: (r) => r["Device"] == "$3")
+  |> filter(fn: (r) => r["_field"] == "$4")
+  |> count()
+  |> yield(name: "count")
+EOF
+)  
+  	local COUNT=0
+	[ $VERBOSE -gt 1 ] && echo "QUERY: '$QUERY'"
+
+	local RES=$(influx query "$QUERY")
+	RC=$?
+	if [ $RC -ne 0 ]; then
+		echo "query failed"
+#		exit 1
+	else
+		[ $VERBOSE -gt 1 ] && echo "$RES"
+		COUNT=$(echo "$RES" | awk '/^[0-9]/{print $6}')
+		[ "$COUNT". == "." ] && COUNT=0
+#		echo "COUNT: $COUNT"
+	fi
+	[ $VERBOSE -eq 1 ] && echo "($BUCKET) $2, $3: $COUNT ($1)"
+	[ $COUNT -eq 0 ] && echo "$2, $3: no values for now() $1"
+	return $COUNT
+}
+
+
+# Finder energy Meter via Modbus serial 0
+doQuery "-1h" "energyMeter" "Allgemein" "p1"
+doQuery "-1h" "energyMeter" "G2" "p1"
+doQuery "-1h" "energyMeter" "G1" "p1"
+doQuery "-1h" "energyMeter" "Halle" "p1"
+doQuery "-1h" "energyMeter" "HK" "p1"
+doQuery "-1h" "energyMeter" "WP" "p1"
+
+# Floor heating sensors via Modbus serial 1
+doQuery "-2h" "heating" "FB_EG" "Wohn1"
+doQuery "-2h" "heating" "FB_SUT" "Wohn1"
+doQuery "-2h" "heating" "FB_G1" "Wohn1"
+doQuery "-2h" "heating" "FB_G2" "WohnL"
+
+
+# Power consumption
+doQuery "-2h" "Consumption" "alg" "kwh"
+doQuery "-2h" "Consumption" "halle" "kwh"
+doQuery "-2h" "Consumption" "g1" "kwh"
+doQuery "-2h" "Consumption" "g2" "kwh"
+doQuery "-2h" "Consumption" "wp" "kwh"
+doQuery "-2h" "Consumption" "hk" "kwh"
+doQuery "-2h" "Consumption" "grid" "kwh"
+doQuery "-2h" "Consumption" "solar" "kwh"
+
+#Water meter via M-Bus
+doQuery "-24h" "waterConsumption" "SUT" "m3"
+doQuery "-24h" "waterConsumption" "EG" "m3"
+doQuery "-24h" "waterConsumption" "G1" "m3"
+doQuery "-24h" "waterConsumption" "G2" "m3"
+
+#Heat meter via M-Bus
+doQuery "-24h" "heatConsumption" "SUT" "kwh"
+doQuery "-24h" "heatConsumption" "EG" "kwh"
+doQuery "-24h" "heatConsumption" "G1" "kwh"
+doQuery "-24h" "heatConsumption" "G2" "kwh"
+doQuery "-24h" "heatConsumption" "HK_G12" "kwh"
+
+#Ruuvi temp sensors via mqtt
+doQuery "-30m" "Temp" "SUT-Wohn" "Temp"
+doQuery "-30m" "Temp" "SUT-Kueche" "Temp"
+doQuery "-30m" "Temp" "SUT-Bad" "Temp"
+doQuery "-30m" "Temp" "G1-Wohn" "Temp"
+doQuery "-30m" "Temp" "EG-Wohn" "Temp"
+doQuery "-30m" "Temp" "EG-Flur" "Temp"
+doQuery "-30m" "Temp" "G2-Wohn" "Temp"
+doQuery "-3m" "Temp" "G2-Buero" "Temp"
+
