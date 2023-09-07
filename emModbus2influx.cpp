@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.12 Armin Diehl <ad@ardiehl.de> Sep 3,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.13 Armin Diehl <ad@ardiehl.de> Sep 7,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -82,6 +82,7 @@ int doTry   = false;
 char * influxMeasurement;
 char * influxTagName;
 int influxWriteMult;    // write to influx only on x th query (>=2)
+int iVerifyPeer = 1;
 int mqttQOS;
 int mqttRetain;
 int mqttDelayMs;
@@ -103,6 +104,7 @@ int gport = 3000;
 char *gtoken;
 char *gpushid;
 int gUseInfluxMeasurement;
+int gVerifyPeer = 1;
 influx_client_t *gClient;
 
 void scanAddresses() {
@@ -281,6 +283,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_STRVAL       (1,'O',"org"            ,&org                  ,"Influxdb v2 org")
 		AP_OPT_STRVAL       (0,'T',"token"          ,&token                ,"Influxdb v2 auth api token")
 		AP_OPT_INTVAL       (0, 0 ,"influxwritemult",&influxWriteMult      ,"Influx write multiplicator")
+		AP_OPT_INTVAL       (1,0  ,"isslverifypeer" ,&iVerifyPeer          ,"Influx SSL certificate verification (0=off)")
 		AP_OPT_INTVAL       (1,'c',"cache"          ,&numQueueEntries      ,"#entries for influxdb cache")
 		AP_OPT_STRVAL       (1,'M',"mqttserver"     ,&mClient->hostname    ,"mqtt server name or ip")
 		AP_OPT_STRVAL       (1,'C',"mqttprefix"     ,&mqttprefix           ,"prefix for mqtt publish")
@@ -296,6 +299,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_STRVAL       (1,0  ,"gtoken"         ,&gtoken               ,"authorisation api token for Grafana")
 		AP_OPT_STRVAL       (1,0  ,"gpushid"        ,&gpushid              ,"push id for Grafana")
 		AP_OPT_INTVAL       (1,0  ,"ginfluxmeas"    ,&gUseInfluxMeasurement,"use influx measurement names for grafana as well")
+		AP_OPT_INTVAL       (1,0  ,"gsslverifypeer" ,&gVerifyPeer          ,"grafana SSL certificate verification (0=off)")
 
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
@@ -376,7 +380,7 @@ int parseArgs (int argc, char **argv) {
 	if (doTry == 0) {
 		if (serverName) {
 			LOG(1,"Influx init: serverName: %s, port %d, dbName: %s, userName: %s, password: %s, org: %s, bucket:%s, numQueueEntries %d\n",serverName, port, dbName, userName, password, org, bucket, numQueueEntries);
-			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries);
+			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries, iVerifyPeer);
 		} else {
 			free(dbName);
 			free(serverName);
@@ -1069,7 +1073,7 @@ int main(int argc, char *argv[]) {
 	if (!iClient) LOGN(0,"no influxdb host specified, influx sender disabled");
 
 	if (ghost && gtoken && gpushid) {
-		gClient = influxdb_post_init_grafana (ghost, gport, gpushid, gtoken);
+		gClient = influxdb_post_init_grafana (ghost, gport, gpushid, gtoken, gVerifyPeer);
 	} else
 		LOGN(0,"no grafana host,token and pushid specified, grafana sender disabled");
 
