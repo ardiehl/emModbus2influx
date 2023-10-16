@@ -78,6 +78,7 @@ influx_client_t* influxdb_post_init (char* host, int port, char* db, char* user,
     if (token) i->token=strdup(token);
     i->maxNumEntriesToQueue=numQueueEntries;
     i->lastNeededBufferSize = INFLUX_INITIAL_BUF_SIZE;
+    i->firstConnectionAttempt = 1;
 #ifdef INFLUXDB_POST_LIBCURL
 	i->ssl_verifypeer = SSL_VerifyPeer;
 #endif
@@ -591,7 +592,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 			res = curl_easy_setopt(c->ch, CURLOPT_SSL_VERIFYHOST, 0);
 			if (res) EPRINTFN("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER) for '%s' failed with %d (%s)",c->host,res,curl_easy_strerror(res));
 		}
-		printf("CURLOPT_SSL_VERIFYPEER, %d, rc: %d\n",c->ssl_verifypeer,res);
+		//printf("CURLOPT_SSL_VERIFYPEER, %d, rc: %d\n",c->ssl_verifypeer,res);
 
 		// add http:// if needed
 		if (getTransportProto (c->host) == proto_none) changeTransportProto (&c->host, proto_http);
@@ -632,23 +633,31 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return res;
 					}
-					VPRINTFN(0,"Connecting to grafana at %s",c->url);
+
 					res = curl_easy_perform(c->ch);
 					if (res == CURLE_HTTP_RETURNED_ERROR) {
 						int res2 = curl_easy_getinfo(c->ch, CURLINFO_RESPONSE_CODE, &response_code);
 						if (!res2) res = response_code;
+						VPRINTFN(0,"Connecting to grafana at %s failed, rc: %d",c->url,res);
 					}
-					if (res) {
-						EPRINTFN("curl_easy_perform to '%s' returned %d (%s), trying http instead",c->url,res,curl_easy_strerror(res));
+					if (res && c->firstConnectionAttempt) {
+						c->firstConnectionAttempt--;
+						EPRINTFN("Initial connection to grafana at '%s' failed with %d (%s), trying http instead",c->url,res,curl_easy_strerror(res));
 						if (getTransportProto (c->url) == proto_wss)
 							changeTransportProto (&c->host, proto_https);
-							else changeTransportProto (&c->host, proto_http);
+						else changeTransportProto (&c->host, proto_http);
 						free(c->url); c->url = NULL;
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return post_http_send_line(c,buf,len);
 					} else {
-						c->isWebsocket++;
+						c->isWebsocket = 1;
+						c->firstConnectionAttempt = 0;
+						if (res) {
+							EPRINTFN("curl_easy_perform to '%s' returned %d (%s)",c->url,res,curl_easy_strerror(res));
+							return res;
+						}
 					}
+					VPRINTFN(0,"Connected to grafana at %s",c->url);
 				}
 			}
 
