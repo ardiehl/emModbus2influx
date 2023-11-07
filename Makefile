@@ -109,9 +109,9 @@ endif
 
 
 ifeq ($(CURLSTATIC),1)
-CURLVERSION  = 8.2.1
+CURLVERSION  = 8.4.0
 CURLSRCFILE  = curl-$(CURLVERSION).tar.xz
-CURLSRC      = https://github.com/curl/curl/releases/download/curl-8_2_1/$(CURLSRCFILE)
+CURLSRC      = https://github.com/curl/curl/releases/download/curl-8_4_0/$(CURLSRCFILE)
 CURLDIR      = curl$(ARCH)$(TGT)
 CURLTAR      = $(CURLDIR)/$(CURLSRCFILE)
 CURLMAKEDIR  = $(CURLDIR)/curl-$(CURLVERSION)
@@ -197,7 +197,7 @@ $(CURLMAKE):        $(CURLTAR)
 	@echo
 
 $(CURLLIB): $(CURLMAKE)
-	@echo "Compiling modbus"
+	@echo "Compiling libcurl"
 	@$(MAKE) -s -C $(CURLMAKEDIR)
 
 endif
