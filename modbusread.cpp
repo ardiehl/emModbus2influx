@@ -178,7 +178,7 @@ meterSerialConnection_t * newMeterSerialConnection() {
 			return sc;
 		}
 		meterSerialConnection_t * sc_last = meterSerialConnections;
-		while (sc_last->next != 0) sc_last = sc_last->next;
+		while (sc_last->next) sc_last = sc_last->next;
 		sc_last->next = sc;
 		// use the values for the first port as default
 		sc->baudrate = meterSerialConnections->baudrate;
@@ -1590,6 +1590,7 @@ int testRTUpresent() {
                     VPRINTFN(1,"%s: read %d registers starting at %d failed with %d %s",meter->name,meter->registerRead->registerDef->numRegisters,startReg,res,modbus_strerror(res));
                     return 0;
                 }
+                free(buf);
                 return 1;
             }
             meter = meter->next;
@@ -1705,3 +1706,9 @@ void setTarif (int verboseMsg) {
     }
 }
 
+void modbusread_free() {
+  if (parser) {
+    delete (parser);
+    parser = NULL;
+  }
+}

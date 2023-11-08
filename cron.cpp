@@ -25,6 +25,27 @@ cronDef_t * cron_find(const char * name) {
 	return NULL;
 }
 
+void cronFree() {
+  cronDef_t *cd = cronTab;
+  cronDef_t *cd2;
+  cronMember_t *cm,*cm2;
+
+  while(cd) {
+    free(cd->name);
+    cm = cd->members;
+    while (cm) {
+      cm2 = cm;
+      cm = cm->next;
+      free(cm2);
+	}
+    free(cd->cronExpression);
+    cd2 = cd;
+    cd = cd->next;
+    free(cd2);
+  }
+  cronTab = NULL;
+}
+
 
 void cron_add(const char *name, const char * cronExpression) {		// name=NULL for default
 	cronDef_t * ct,* ct1;

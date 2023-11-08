@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.13 Armin Diehl <ad@ardiehl.de> Sep 7,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.15 Armin Diehl <ad@ardiehl.de> Nov 8,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -680,6 +680,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 
 		mClient->topicPrefix = mqttstatprefix;
 		mqtt_pub_strF (mClient,meter->name, 0, 0, 1, buf);
+		free(buf);
 		mClient->topicPrefix = NULL;
 	}
 
@@ -748,6 +749,7 @@ int influxAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 		}
 		mf = mf->next;
 	}
+	//printf("InfluxLine: '%s'\n",c->influxBuf);
 	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
 	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
 
@@ -817,8 +819,10 @@ int grafanaAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 		} //else printf("%s, meter formula field %s disabled for Grafana\n",meter->name,mf->name);
 		mf = mf->next;
 	}
+	//printf("GrafanaLine: '%s'\n",c->influxBuf);
 	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
-	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS"); exit(1); }
+
+	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_TS (grafana)"); exit(1); }
 
 	if (regCount) meter->numGrafanaWrites++;
 	return regCount;
@@ -848,10 +852,11 @@ int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
 	}
 	strncat(channelName,"_STATISTICS",CHANNEL_MAX_LEN);
 
-	rc = influxdb_format_line(c, INFLUX_MEAS(channelName), INFLUX_END);
 	while (meter) {
 		if (!meter->disabled) {
 			if (meter->isTCP || meter->isSerial) {
+				if (statCount == 0)
+					influxdb_format_line(c, INFLUX_MEAS(channelName), INFLUX_END);
 				statCount++;
 				len = snprintf(fieldName,sizeof(fieldName),"%s.%s",meter->name,"last");
 				if (len >= (int)(sizeof(fieldName)-1)) {
@@ -902,9 +907,11 @@ int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
 		meter = meter->next;
 	}
 
-	rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
-	if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d , INFLUX_TS",rc); exit(1); }
-	LOGN(2,"%d stat lines posted to Grafana",statCount);
+	if (statCount > 0) {
+		rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
+		if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d , INFLUX_TS (grafaStat)",rc); exit(1); }
+		LOGN(2,"%d stat lines posted to Grafana",statCount);
+	}
 
 	return meterCount;
 }
@@ -1275,7 +1282,14 @@ int main(int argc, char *argv[]) {
 	free(influxTagName);
 	free(serDevice);
 	free(serParity);
+	free(serBaudrate);
+	free(serStopbits);
 	freeMeters();
+	printf("CronFree\n");
+	cronFree();
+	printf("modbusreadFree\n");
+	modbusread_free();
+	free(cronExpression);
 
 	PRINTFN("terminated");
 

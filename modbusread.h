@@ -55,5 +55,7 @@ void freeFormulaParser();
 
 void setTarif (int verboseMsg);
 
+void modbusread_free();
+
 #endif // MODBUSREAD_H_INCLUDED
 

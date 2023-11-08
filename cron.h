@@ -81,4 +81,6 @@ void workerInit(int numWorkers, int verboseMsg);
 // terminate all worker threads
 void workerTerminate();
 
+void cronFree();
+
 #endif // CRON_H_INCLUDED
