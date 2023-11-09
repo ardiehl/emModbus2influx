@@ -132,6 +132,7 @@ void influxdb_post_free(influx_client_t *c) {
 		free(c->org);
 		free(c->bucket);
 		free(c->token);
+		free(c->grafanaPushID);
 #ifdef INFLUXDB_POST_LIBCURL
 		free(c->url);
 		if (c->ch_headers) curl_slist_free_all(c->ch_headers);
@@ -624,12 +625,14 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 					res = curl_easy_setopt(c->ch, CURLOPT_URL, c->url);
 					if (res) {
 						EPRINTFN("curl_easy_setopt(CURLOPT_URL,\"%s\") failed with %d (%s)",c->url,res,curl_easy_strerror(res));
+						curl_slist_free_all(c->ch);
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return res;
 					};
 					res = curl_easy_setopt(c->ch, CURLOPT_CONNECT_ONLY, 2);
 					if (res) {
 						EPRINTFN("curl_easy_setopt(CURLOPT_CONNECT_ONLY) for '%s' failed with %d (%s)",c->url,res,curl_easy_strerror(res));
+						curl_slist_free_all(c->ch);
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return res;
 					}
@@ -647,6 +650,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 							changeTransportProto (&c->host, proto_https);
 						else changeTransportProto (&c->host, proto_http);
 						free(c->url); c->url = NULL;
+						curl_slist_free_all(c->ch);
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return post_http_send_line(c,buf,len);
 					} else {
@@ -682,7 +686,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 				curl_slist_append(c->ch_headers,"Content-Type: text/plain; charset=utf-8");
 				//curl_slist_append(c->ch_headers,"Accept: application/json");
 				curl_easy_setopt(c->ch, CURLOPT_HTTPHEADER, c->ch_headers);
-				VPRINTFN(0,"Connecting to influxdb2 server at %s",c->url);
+				PRINTFN("Using influxdb2 at %s",c->url);
 			} else
 			if (!c->isGrafana) {
 				char *urlFormat="%s/write?db=%s%s%s%s%s";
@@ -691,7 +695,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 				if (c->usr) urlSize+=strlen(c->usr)+3;
 				if (c->pwd) urlSize+=strlen(c->pwd)+3;
 				if (! c->db) {
-					LOGN(0,"post_http_send_line: no database name specified");
+					LOGN(0,"influxdb1: no database name specified");
 					return -5;
 				}
 				urlSize+=strlen(c->db);
@@ -700,7 +704,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 				if (c->url==NULL) return -2;
 				sprintf(c->url, urlFormat,
 					c->host, c->db, c->usr ? "&u=" : "",c->usr ? c->usr : "", c->pwd ? "&p=" : "", c->pwd ? c->pwd : "");
-				VPRINTF(0,"Connecting to influxdb1 server at %s",c->url);
+				PRINTF("Using influxdb1 at %s",c->url);
 			}
 		}
 		curl_easy_setopt(c->ch, CURLOPT_URL, c->url);
@@ -722,10 +726,10 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 			res = curl_ws_send(c->ch, buf, len, &sent, 0, CURLWS_TEXT);
 			if (res) {
 				EPRINTFN("curl_ws_send to \"%s\" failed with %d (%s), closing connection",c->url,res,curl_easy_strerror(res));
+				curl_slist_free_all(c->ch);
 				curl_easy_cleanup(c->ch);
 				c->ch = NULL;	// reconnect next time
-				free(c->url);
-				c->url = NULL;
+				free(c->url); c->url = NULL;
 				return -1;
 			}
 			len -= sent;
@@ -746,6 +750,10 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 		/* Check for errors */
 		if(res != CURLE_OK && res != CURLE_HTTP_RETURNED_ERROR) {
 			EPRINTFN("Posting %s data returned %d (%s)",c->isGrafana?"grafana":"influx",res,curl_easy_strerror(res));
+			curl_slist_free_all(c->ch);
+			curl_easy_cleanup(c->ch);
+			c->ch = NULL;	// reconnect next time
+			free(c->url); c->url = NULL;
 			return res;
 		}
 
@@ -753,6 +761,10 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 		res = curl_easy_getinfo(c->ch, CURLINFO_RESPONSE_CODE, &response_code);
 		if(res != CURLE_OK) {
 			EPRINTFN("curl_easy_getinfo returned %d (%s)",res,curl_easy_strerror(res));
+			curl_slist_free_all(c->ch);
+			curl_easy_cleanup(c->ch);
+			c->ch = NULL;	// reconnect next time
+			free(c->url); c->url = NULL;
 			return res;
 		}
 		LOGN(4,"Post to influxdb, status: %d",response_code);

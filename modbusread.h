@@ -27,6 +27,7 @@ int modbusRTU_getBaudrate(int serialPortNum);
 void modbusRTU_SilentDelay(int baudrate);
 
 void modbusTCP_freeAll();
+void modbusRTU_freeAll();
 
 void setMeterFvalueInfluxLast (meter_t *meter);
 void setMeterFvalueInflux (meter_t * meter);

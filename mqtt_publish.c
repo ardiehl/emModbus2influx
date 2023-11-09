@@ -36,7 +36,6 @@ mqtt_pubT * mqtt_pub_init (const char * hostname, int port, const char *  client
 	m->conn_opts = conn_optsDefault;
 	m->conn_opts.keepAliveInterval = 30;
     m->conn_opts.cleansession = 1;
-	if (clientId) m->clientId = strdup(clientId);
 
 	return m;
 }
@@ -86,6 +85,7 @@ int mqtt_pub_connect (mqtt_pubT *m) {
 	if (!MQTTClient_isConnected(m->client)) {		// connect if not already connected
 		rc = MQTTClient_connect(m->client, &m->conn_opts);
 		if (rc != MQTTCLIENT_SUCCESS) return rc;
+		VPRINTFN(0,"Connected to mqtt at %s",m->url);
 	}
 	return 0;
 }

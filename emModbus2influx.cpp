@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.15 Armin Diehl <ad@ardiehl.de> Nov 8,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.16 Armin Diehl <ad@ardiehl.de> Nov 9,2023 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1096,7 +1096,7 @@ int main(int argc, char *argv[]) {
 	} else {
 		if (!dryrun) {
 			rc = mqtt_pub_connect (mClient);
-			printf("mqtt connect: %d\n",rc);
+			//printf("mqtt connect: %d\n",rc);
 			if (rc != 0) LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
 		}
 	}
@@ -1270,25 +1270,36 @@ int main(int argc, char *argv[]) {
 	freeFormulaParser();
 #endif // DISABLE_FORMULAS
 
-	modbusTCP_freeAll();
-
 	if (mClient) mqtt_pub_free(mClient);
 	influxdb_post_free(iClient);
+	influxdb_post_free(gClient);
 
-    free(configFileName);
-	free(mqttprefix);
+	freeMeters();
+	cronFree();
+	modbusread_free();
 
+	// cat emModbus2influx.cpp | grep AP_OPT_STRVAL | awk -F, '{gsub(/[ \t]+$/, "", $4); print "free("substr($4,2,255)");"}'
+	free(serDevice);
+	free(serBaudrate);
+	free(serParity);
+	free(serStopbits);
+	free(ser_rs485);
 	free(influxMeasurement);
 	free(influxTagName);
-	free(serDevice);
-	free(serParity);
-	free(serBaudrate);
-	free(serStopbits);
-	freeMeters();
-	printf("CronFree\n");
-	cronFree();
-	printf("modbusreadFree\n");
-	modbusread_free();
+	//free(serverName);
+	//free(dbName);
+	//free(userName);
+	//free(password);
+	//free(bucket);
+	//free(org);
+	//free(token);
+	//free(mClient->hostname);
+	free(mqttprefix);
+	free(mqttstatprefix);
+	//free(mClient->clientId);
+	free(ghost);
+	free(gtoken);
+	free(gpushid);
 	free(cronExpression);
 
 	PRINTFN("terminated");

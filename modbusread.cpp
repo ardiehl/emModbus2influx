@@ -112,10 +112,10 @@ void modbusTCP_freeAll() {
 		modbus_free(mcWork->mb);
 		free(mcWork);
 	}
+	meterIPconnections = NULL;
 }
 
 //*****************************************************************************
-
 
 /* msleep(): Sleep for the requested number of milliseconds. */
 #if 0
@@ -253,6 +253,20 @@ int meterSerialOpen () {
 		serialPortNum++;
 	}
 	return 0;
+}
+
+
+void modbusRTU_freeAll()  {
+	meterSerialConnection_t * mc = meterSerialConnections;
+	meterSerialConnection_t * mcWork;
+	while (mc) {
+		mcWork = mc;
+		free(mc->device);
+		mc = mc->next;
+		modbus_free(mcWork->mb);
+		free(mcWork);
+	}
+	meterSerialConnections = NULL;
 }
 
 
@@ -1711,4 +1725,7 @@ void modbusread_free() {
     delete (parser);
     parser = NULL;
   }
+
+  modbusTCP_freeAll();
+  modbusRTU_freeAll();
 }

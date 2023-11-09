@@ -25,28 +25,6 @@ cronDef_t * cron_find(const char * name) {
 	return NULL;
 }
 
-void cronFree() {
-  cronDef_t *cd = cronTab;
-  cronDef_t *cd2;
-  cronMember_t *cm,*cm2;
-
-  while(cd) {
-    free(cd->name);
-    cm = cd->members;
-    while (cm) {
-      cm2 = cm;
-      cm = cm->next;
-      free(cm2);
-	}
-    free(cd->cronExpression);
-    cd2 = cd;
-    cd = cd->next;
-    free(cd2);
-  }
-  cronTab = NULL;
-}
-
-
 void cron_add(const char *name, const char * cronExpression) {		// name=NULL for default
 	cronDef_t * ct,* ct1;
 	const char *errStr;
@@ -94,9 +72,6 @@ int  cron_is_due(time_t currTime, cronDef_t *cronDef) {
 	return 0;
 }
 
-//void cron_calc_next(cronDef_t *cronDef) {
-//	cron_next(&cronDef->cronExpr, time(NULL));
-//}
 
 void cron_meter_add(cronDef_t *cronDef, meter_t *meter) {
 	cronMember_t * cm;
@@ -251,23 +226,29 @@ void *workerThread(void *ptr) {
 			wd->queryTimeNano = ((timeEnd.tv_sec - timeStart.tv_sec) * NANO_PER_SEC) + (timeEnd.tv_nsec - timeStart.tv_nsec);
 		}
 	}
-	VPRINTFN(2,"worker %d: ended\n",wd->serialPortNum);
+	VPRINTFN(2,"worker %d: ended",wd->serialPortNum);
 
 	if ((rc = pthread_mutex_unlock(&wd->workAvailableMutex)) != 0) {
 		fprintf(stderr,"worker - %d: Unable unlock wd->workAvailableMutex, pthread_mutex_unlock rc=%d (%s)\n",wd->serialPortNum,rc,strerror(rc));
 		exit(1);
 	}
+	pthread_detach(pthread_self());
 	return NULL;
 }
 
+
+int numWorkersInitialized;
 
 void workerInit(int numWorkers, int verboseMsg) {
 	if (disableThreadedQuery) return;
 	if (numWorkers<=0) return;
 	int i,rc;
 
+	PRINTF("init %d worker thread(s) for modbus RTU devices (one per serial device)\n",numWorkers);
 	// init and create threads
 	workerData = (workerData_t **) calloc(numWorkers+1,sizeof(workerData_t *));
+	assert(workerData);
+	numWorkersInitialized = numWorkers;
 	workerData[numWorkers] = NULL;
 	for (i=0; i<numWorkers;i++) {
 		workerData[i] = (workerData_t *) malloc(sizeof(workerData_t));
@@ -277,23 +258,23 @@ void workerInit(int numWorkers, int verboseMsg) {
 		workerData[i]->workAvailable = PTHREAD_COND_INITIALIZER;
 		workerData[i]->workAvailableMutex = PTHREAD_MUTEX_INITIALIZER;
 		if ((rc = LockMutex(&workerData[i]->workAvailableMutex)) != 0) {		// to be able to wait for thread creation
-			fprintf(stderr,"LockMutex(&workAvailableMutex[%d]->threadStartedMutex failed with %d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("LockMutex(&workAvailableMutex[%d]->threadStartedMutex failed with %d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		if ((rc = pthread_create(&workerData[i]->threadId, NULL, &workerThread, workerData[i])) != 0) {
-			fprintf(stderr,"pthread_create(&workerData[%d],..) failed with %d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("pthread_create(&workerData[%d],..) failed with %d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 	}
 	// wait for threads started
 	for (i=0; i<numWorkers;i++) {
 		if ((rc = LockMutex(&workerData[i]->workAvailableMutex)) != 0) {
-			fprintf(stderr,"%d: Error waiting for thread start, LockMutex(workAvailableMutex) failed with %d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("%d: Error waiting for thread start, LockMutex(workAvailableMutex) failed with %d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		//printf("Thread %d started\n",i);
 		if ((rc = pthread_mutex_unlock(&workerData[i]->workAvailableMutex)) != 0) {
-			fprintf(stderr,"%d: Error unlocking after thread start, workAvailableMutex(&workerData, ..) failed with %d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("%d: Error unlocking after thread start, workAvailableMutex(&workerData, ..) failed with %d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 	}
@@ -308,7 +289,7 @@ int workerRun() {
 	if (!workerData) return 0;
 	while (workerData[i]) {
 		if ((rc = pthread_cond_signal(&workerData[i]->workAvailable)) != 0) {
-			fprintf(stderr,"workerRun - %d: Unable to signal worker, pthread_cond_signal rc=%d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("workerRun - %d: Unable to signal worker, pthread_cond_signal rc=%d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		i++;
@@ -325,11 +306,11 @@ void workerWait() {
 
 	while (workerData[i]) {
 		if ((rc = LockMutex(&workerData[i]->workAvailableMutex)) != 0) {		// blocks while thread is running
-			fprintf(stderr,"workerWait - %d: Unable lock workAvailableMutex, LockMutex rc=%d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("workerWait - %d: Unable lock workAvailableMutex, LockMutex rc=%d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		if ((rc = pthread_mutex_unlock(&workerData[i]->workAvailableMutex)) != 0) {
-			fprintf(stderr,"workerWait - %d: Unable unlock workAvailableMutex, pthread_mutex_unlock rc=%d (%s)\n",i,rc,strerror(rc));
+			EPRINTFN("workerWait - %d: Unable unlock workAvailableMutex, pthread_mutex_unlock rc=%d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		i++;
@@ -340,7 +321,9 @@ void workerWait() {
 void workerTerminate() {
 	terminateWorker++;
 	workerRun();
+	usleep(100000);
 	workerWait();
+	usleep(100000);
 }
 
 
@@ -536,4 +519,34 @@ void cron_setDefault() {
 		cd->nextQueryTime = cron_next(&cd->cronExpr, currTime);
 		cd = cd->next;
 	}
+}
+
+void cronFree() {
+int i;
+
+  cronDef_t *cd = cronTab;
+  cronDef_t *cd2;
+  cronMember_t *cm,*cm2;
+
+  workerTerminate();
+
+  while(cd) {
+    free(cd->name);
+    cm = cd->members;
+    while (cm) {
+      cm2 = cm;
+      cm = cm->next;
+      free(cm2);
+	}
+    free(cd->cronExpression);
+    cd2 = cd;
+    cd = cd->next;
+    free(cd2);
+  }
+  cronTab = NULL;
+
+  usleep(100000);	// for valgrind only, to make sure threads are really terminated and memory is free'ed
+  for (i=0; i<numWorkersInitialized;i++) free(workerData[i]);
+  free(workerData);
+  numWorkersInitialized = 0;
 }
