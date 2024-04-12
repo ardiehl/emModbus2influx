@@ -86,7 +86,10 @@
 #define TK_INPUT           628
 #define TK_HOLDING         629
 #define TK_GNAME           630
-
+#define TK_METER           631
+#define TK_REGISTER        632
+#define TK_COIL            633
+#define TK_WRITE           634
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -114,7 +117,7 @@ struct sunspecIds_t {
 	sunspecId_t * ids;
 };
 
-typedef enum  {regTypeHolding = 0, regTypeInput} regType_t;
+typedef enum  {regTypeHolding = 0, regTypeInput, regTypeRegister, regTypeCoil} regType_t;
 
 #define regTypeSunspec regTypeHolding
 
@@ -286,6 +289,26 @@ struct meterList_t {
     meterList_t *next;
 };
 
+typedef struct meterWrite_t meterWrite_t;
+struct meterWrite_t {
+    meterRegister_t * reg;
+    double value;
+    char * formula;
+    meterWrite_t *next;
+    regType_t regType;
+};
+
+
+typedef struct meterWrites_t meterWrites_t;
+struct meterWrites_t {
+	int disabled;
+	char *name;
+	int isDue;
+    meter_t * meter;
+    meterWrite_t *meterWrite;
+    meterWrites_t *next;
+};
+
 
 typedef struct meterTarif_t meterTarif_t;
 struct meterTarif_t {
@@ -300,8 +323,8 @@ struct meterTarif_t {
 };
 
 extern meterTarif_t *meterTarifs;
-
 extern meter_t *meters;
+extern meterWrites_t *meterWrites;
 
 int readMeterDefinitions (const char * configFileName);
 void freeMeters();
@@ -309,5 +332,8 @@ void freeMeters();
 meter_t *findMeter(char *name);
 
 int parserExpectEqual(parser_t * pa, int tkExpected);
+
+void meterWrites_add(meterWrites_t *mw);
+void meterWrite_add(meterWrites_t *mw, meterWrite_t *m);
 
 #endif // METERDEF_H_INCLUDED

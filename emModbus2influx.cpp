@@ -40,7 +40,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 
 #include "MQTTClient.h"
 
-#define VER "1.16 Armin Diehl <ad@ardiehl.de> Nov 9,2023 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.18 Armin Diehl <ad@ardiehl.de> Apr 12,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -167,7 +167,11 @@ void scanAddresses() {
 				numFound++;
 			}
 			if (verbose && (res <= 0)) printf("\r%d Res:%d (%s)\n",reg,errno,modbus_strerror(errno));
-			if (isSerial) modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));
+			if (isSerial) {
+					modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));
+					modbusRTU_SilentDelay(modbusRTU_getBaudrate(0));
+
+			}
 			//msleep(250);
 		}
 		printf("\rfound %d holding registers\n\n",numFound);
@@ -678,10 +682,15 @@ int mqttSendData (meter_t * meter,int dryrun) {
 
 		APPEND("}");
 
-		mClient->topicPrefix = mqttstatprefix;
-		mqtt_pub_strF (mClient,meter->name, 0, 0, 1, buf);
-		free(buf);
-		mClient->topicPrefix = NULL;
+		if (dryrun) {
+			printf("%s%s %s\n",meter->mqttprefix,meter->name,buf);
+			free(buf);
+		} else {
+			mClient->topicPrefix = mqttstatprefix;
+			mqtt_pub_strF (mClient,meter->name, 0, 0, 1, buf);
+			free(buf);
+			mClient->topicPrefix = NULL;
+		}
 	}
 
 	if (meter->mqttDelayMs) msleep(meter->mqttDelayMs);
@@ -713,7 +722,7 @@ int influxAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 		VPRINTFN(2,"%s; influx: no enabled registers",meter->name);
 		return 0;
 	}
-	VPRINTFN(2,"%s: InfluxAppendData\n",meter->name);
+	//VPRINTFN(2,"%s: InfluxAppendData\n",meter->name);
 
 	rc = influxdb_format_line(c, INFLUX_MEAS(measurement), INFLUX_TAG(tagname, meter->iname ? meter->iname : meter->name),INFLUX_END);
 	if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_MEAS"); exit(1); }
@@ -1097,7 +1106,10 @@ int main(int argc, char *argv[]) {
 		if (!dryrun) {
 			rc = mqtt_pub_connect (mClient);
 			//printf("mqtt connect: %d\n",rc);
-			if (rc != 0) LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
+			if (rc != 0) {
+				LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
+			}
+			else LOGN(0,"Connected to mqtt server %s",iClient->host);
 		}
 	}
 
@@ -1188,7 +1200,7 @@ int main(int argc, char *argv[]) {
 				meter = meters;
 				while(meter) {
 					if(!meter->disabled) {
-						if((meter->meterHasBeenRead || (meter->isFormulaOnly)) && (meter->influxWriteCountdown == 0)) {
+						if( (meter->meterHasBeenRead || ( meter->isFormulaOnly && (meter->hasSchedule == 0) )) && (meter->influxWriteCountdown == 0) ) {
 							influxAppendData (iClient, meter, influxTimestamp);
 							meter->influxWriteCountdown = meter->influxWriteMult;
 							numMeters++;

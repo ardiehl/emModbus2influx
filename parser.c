@@ -180,17 +180,23 @@ int parserGetNextLine(parser_t * pa) {
 }
 
 
-int parserBegin (parser_t * pa, const char * fileName, int skipToSectionStart) {
+int parserBeginInt (parser_t * pa, const char * fileName, int skipToSectionStart, const char *inBuf) {
 	int rc;
 
 	free (pa->currLine); pa->currLine = NULL;
+	free (pa->fileName); pa->fileName = NULL;
 	pa->currLineNo = 0;
 	pa->col = 1;
-	if (fileName == NULL) return -1;
-	if (*fileName == 0) return -1;
-	pa->fileName = strdup(fileName);
-	pa->fh = fopen(fileName,"r");
-	if (pa->fh == NULL) return -1;
+
+	if (fileName) {
+		pa->fileName = strdup(fileName);
+		pa->fh = fopen(fileName,"r");
+		if (pa->fh == NULL) return -1;
+	}
+	if (inBuf) pa->buf = (char *)inBuf;
+
+	if ((!fileName) && (!inBuf)) return -1;
+
 	if (skipToSectionStart) {
 		rc = parserGetNextLine(pa);
 		while (rc >= 0) {
@@ -206,6 +212,18 @@ int parserBegin (parser_t * pa, const char * fileName, int skipToSectionStart) {
 	}
 
 	return rc;
+}
+
+int parserBegin (parser_t * pa, const char * fileName, int skipToSectionStart) {
+	if (fileName == NULL) return -1;
+	if (*fileName == 0) return -1;
+	return parserBeginInt(pa,fileName,skipToSectionStart,NULL);
+}
+
+int parserBeginBuf (parser_t * pa, const char * buf, int skipToSectionStart) {
+	if (!buf) return -1;
+	if (*buf == 0) return -1;
+	return parserBeginInt(pa,NULL,skipToSectionStart,buf);
 }
 
 // peek char

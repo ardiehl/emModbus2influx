@@ -726,9 +726,12 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 			res = curl_ws_send(c->ch, buf, len, &sent, 0, CURLWS_TEXT);
 			if (res) {
 				EPRINTFN("curl_ws_send to \"%s\" failed with %d (%s), closing connection",c->url,res,curl_easy_strerror(res));
-				curl_slist_free_all(c->ch);
+				//curl_slist_free_all(c->ch);  // sigsegv sometimes with curl 8.4.0 ??
+				//EPRINTFN("curl_slist_free_all: done");
 				curl_easy_cleanup(c->ch);
+				EPRINTFN("curl_easy_cleanup: done");
 				c->ch = NULL;	// reconnect next time
+				EPRINTFN("curl_ws_send to \"%s\" closed connection",c->url);
 				free(c->url); c->url = NULL;
 				return -1;
 			}
@@ -750,7 +753,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 		/* Check for errors */
 		if(res != CURLE_OK && res != CURLE_HTTP_RETURNED_ERROR) {
 			EPRINTFN("Posting %s data returned %d (%s)",c->isGrafana?"grafana":"influx",res,curl_easy_strerror(res));
-			curl_slist_free_all(c->ch);
+			//curl_slist_free_all(c->ch);	// this will result in a segfault
 			curl_easy_cleanup(c->ch);
 			c->ch = NULL;	// reconnect next time
 			free(c->url); c->url = NULL;
@@ -761,7 +764,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 		res = curl_easy_getinfo(c->ch, CURLINFO_RESPONSE_CODE, &response_code);
 		if(res != CURLE_OK) {
 			EPRINTFN("curl_easy_getinfo returned %d (%s)",res,curl_easy_strerror(res));
-			curl_slist_free_all(c->ch);
+			//curl_slist_free_all(c->ch);
 			curl_easy_cleanup(c->ch);
 			c->ch = NULL;	// reconnect next time
 			free(c->url); c->url = NULL;

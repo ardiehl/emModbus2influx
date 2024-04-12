@@ -924,7 +924,7 @@ void executeMeterFormulas(meter_t * meter) {
 			VPRINTF(3,"%s \"%s\" %10.2f\n",mf->name,mf->formula,mf->fvalue);
         }
         catch (mu::Parser::exception_type &e) {
-            EPRINTFN("%d.%d error evaluating meter formula (%s)",meter->name,mf->name,e.GetMsg().c_str());
+            EPRINTFN("%s.%s error evaluating meter formula (%s)",meter->name,mf->name,e.GetMsg().c_str());
             meter->numErrs++;
             exit(1);
         }
@@ -1728,4 +1728,54 @@ void modbusread_free() {
 
   modbusTCP_freeAll();
   modbusRTU_freeAll();
+}
+
+
+void execMeterWrite(meterWrites_t *mw) {
+	meterWrite_t *w = mw->meterWrite;
+	double val;
+	int res;
+
+	if (!mw->meterWrite) return;
+
+	res = modbus_set_slave(*mw->meter->mb, mw->meter->modbusAddress);
+	if(res < 0) {
+		EPRINTFN("execMeterWrite: modbus_set_slave %d (%s) failed with %d",mw->meter->modbusAddress,mw->meter->name,res);
+		return;
+	}
+
+
+	VPRINTFN(0,"performing writes \"%s\" for %s",mw->name,mw->meter->name);
+	while (w) {
+		if (w->formula) {
+			mu::Parser * parser = initParser();
+			try {
+				parser->SetExpr(w->formula);
+				val = parser->Eval();
+				VPRINTF(3,"execMeterWrite: %s \"%s\" %10.2f\n",mw->meter->name,w->formula,val);
+			}
+			catch (mu::Parser::exception_type &e) {
+				EPRINTFN("error evaluating meter write formula %s for meter %s, formula: \"%s\" (%s)",mw->name,mw->meter->name,w->formula,e.GetMsg().c_str());
+				mw->meter->numErrs++;
+				return;
+			}
+		} else
+			val = w->value;
+
+#if LIBMODBUS_VERSION_CHECK(3,1,0)
+		modbus_set_response_timeout(*mw->meter->mb, READ_TIMEOUT_SECS, 0);  // 3 seconds
+#else
+		struct timeval response_timeout;
+		response_timeout.tv_sec = READ_TIMEOUT_SECS;
+		response_timeout.tv_usec = 0;
+		modbus_set_response_timeout(*mw->meter->mb, &response_timeout);
+#endif
+
+//int modbus_write_register(modbus_t *ctx, int addr, const uint16_t value);
+//int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *src);
+//adad
+
+		w = w->next;
+	}
+//	adad
 }

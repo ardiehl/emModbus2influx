@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "meterDef.h"
@@ -19,6 +20,7 @@ extern int modbusDebug;
 meterType_t *meterTypes = NULL;
 meter_t *meters = NULL;
 meterTarif_t *meterTarifs = NULL;
+meterWrites_t *meterWrites = NULL;
 
 void freeMeters() {
 	meterType_t * mt, *mtNext;
@@ -124,6 +126,25 @@ void freeMeters() {
 }
 
 
+void meterWrites_add(meterWrites_t *mw) {
+	if (!meterWrites) {
+		meterWrites = mw;
+		return;
+	}
+	meterWrites_t *m = meterWrites;
+	while (m->next) m = m->next;
+	m->next = mw;
+}
+
+void meterWrite_add(meterWrites_t *mw, meterWrite_t *m) {
+	if (!mw->meterWrite) {
+		mw->meterWrite = m;
+		return;
+	}
+	meterWrite_t *mwt = mw->meterWrite;
+	while (!mwt->next) mwt = mwt->next;
+	mwt->next = m;
+}
 
 
 
@@ -214,14 +235,28 @@ meterType_t * findMeterType(const char * name) {
 
 
 meterRegisterRead_t *findMeterRegisterRead (meter_t *meter, char * name) {
+	if (!meter) return NULL;
+
     meterRegisterRead_t *mrrd = meter->registerRead;
 
-    if (!meter) return NULL;
     while (mrrd) {
         if (strcmp(name,mrrd->registerDef->name) == 0) return mrrd;
         mrrd = mrrd->next;
     }
     return mrrd;
+}
+
+meterRegister_t *findMeterRegister (meter_t *meter, char * name) {
+	if (!meter) return NULL;
+	if (!meter->meterType) return NULL;
+
+    meterRegister_t *mr = meter->meterType->meterRegisters;
+
+    while (mr) {
+        if (strcmp(name,mr->name) == 0) return mr;
+        mr = mr->next;
+    }
+    return mr;
 }
 
 
@@ -615,6 +650,7 @@ int parseMeter (parser_t * pa) {
 	int enableInfluxWrite = 1;	// defaults for formula registers
     int enableMqttWrite = 1;
     int enableGrafanaWrite = 1;
+    int disableSpecified = 0;
 
 	meter = (meter_t *)calloc(1,sizeof(meter_t));
 	parserExpect(pa,TK_EOL);  // after section
@@ -696,6 +732,8 @@ int parseMeter (parser_t * pa) {
 			case TK_EOL:
 				break;
             case TK_DISABLE:
+            	if (disableSpecified) parserError(pa,"disable= already specified in meter definition");
+            	disableSpecified++;
                 parserExpectEqual(pa,TK_INTVAL);
                 meter->disabled = pa->iVal;
                 break;
@@ -1033,6 +1071,108 @@ int parseTarif (parser_t * pa) {
 }
 
 
+int parseWrites (parser_t * pa) {
+	int tk;
+	meterWrites_t *mw = (meterWrites_t *)calloc(1,sizeof(meterWrites_t));
+	meterWrite_t *w = NULL;
+	int disableSpecified = 0;
+	regType_t currRegType = regTypeRegister;
+
+	char errMsg[255];
+	int i;
+
+	parserExpect(pa,TK_EOL);  // after section
+
+	tk = parserGetToken(pa);
+	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
+	while (tk != TK_SECTION && tk != TK_EOF) {
+		switch(tk) {
+			case TK_EOL:
+				break;
+			case TK_TYPE:
+				parserExpect(pa,TK_EQUAL);
+				tk = parserGetToken(pa);
+				switch (tk) {
+					case TK_REGISTER:
+						currRegType = regTypeRegister;
+						break;
+					case TK_COIL:
+						currRegType = regTypeCoil;
+						break;
+					default:
+						parserError(pa,"Modbus register type to write to expects register or coil");
+				}
+				break;
+            case TK_NAME:
+            	parserExpectEqual(pa,TK_STRVAL);
+				if (mw->name) free(mw->name);
+				mw->name = strdup(pa->strVal);
+				break;
+			case TK_METER:
+            	parserExpectEqual(pa,TK_STRVAL);
+            	mw->meter = findMeter(pa->strVal);
+            	if (mw->meter == NULL) parserError(pa,"unknown meter name");
+				break;
+			case TK_SCHEDULE:
+				parserExpectEqual(pa,TK_STRVAL);
+				if (!cron_write_add(pa->strVal,mw)) parserError(pa,"unknown schedule");
+				break;
+			case TK_DISABLE:
+            	if (disableSpecified) parserError(pa,"disable= already specified in meter definition");
+            	disableSpecified++;
+                parserExpectEqual(pa,TK_INTVAL);
+                mw->disabled = pa->iVal;
+                break;
+			case TK_WRITE:
+				if (!mw->meter) parserError(pa,"can not parse write without a specified meter");
+				w = (meterWrite_t *)calloc(1,sizeof(meterWrite_t));
+				parserExpectEqual(pa,TK_STRVAL);	// register name
+				w->reg = findMeterRegister(mw->meter,pa->strVal);
+				if (!w->reg) parserError(pa,"register \"%s\" not defined in meter \"%s\"",pa->strVal,mw->meter->name);
+				// value or formula
+				parserExpect(pa,TK_COMMA);
+				tk = parserGetToken(pa);
+				switch(tk) {
+					case TK_STRVAL:
+						w->formula = strdup(pa->strVal);
+						break;
+					case TK_FLOATVAL:
+						w->value = pa->fVal;
+						break;
+					case TK_INTVAL:
+						w->value = pa->iVal;
+						break;
+					default:
+						parserError(pa,"value or formula expected");
+				}
+				break;
+            default:
+				strncpy(errMsg,"unexpected identifier ",sizeof(errMsg)-1);
+				if (tk != TK_IDENT) strncat(errMsg,parserGetTokenTxt(pa,tk),sizeof(errMsg)-1);
+				else strncat(errMsg,pa->strVal,sizeof(errMsg)-1);
+				parserError (pa,errMsg);
+		}
+		if (tk != TK_EOL) {
+			tk = parserGetToken(pa);
+			if (tk != TK_EOL) parserError(pa,"EOL or , expected");
+		}
+		tk = parserGetToken(pa);
+	}
+
+	if (!mw->meter) parserError(pa,"no meter specified for write");
+	if (!mw->meterWrite) parserError(pa,"no registers ro write to specified");
+
+	// add write
+	if (meterWrites) {
+		meterWrites_t * mW = meterWrites;
+		while (mW->next) mW = mW->next;
+		mW->next = mw;
+	} else meterWrites = mw;
+
+    return tk;
+}
+
+
 int readMeterDefinitions (const char * configFileName) {
 	meter_t *meter;
 	int rc;
@@ -1104,6 +1244,10 @@ int readMeterDefinitions (const char * configFileName) {
 		"input"           ,TK_INPUT,
 		"grafana"         ,TK_GRAFANA,
 		"gname"           ,TK_GNAME,
+		"meter"           ,TK_METER,
+		"register"        ,TK_REGISTER,
+		"coil"            ,TK_COIL,
+		"write"           ,TK_WRITE,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
@@ -1121,6 +1265,8 @@ int readMeterDefinitions (const char * configFileName) {
 			tk = parseTarif(pa);
 		else if (strcasecmp(pa->strVal,"Schedule") == 0)
 			tk = parseCron(pa);
+		else if (strcasecmp(pa->strVal,"Writes") == 0)
+			tk = parseWrites(pa);
 		else
 			parserError(pa,"unknown section type %s",pa->strVal);
 	}
@@ -1134,17 +1280,20 @@ int readMeterDefinitions (const char * configFileName) {
 
 	// set the modbus RTU handle in the meter or open an IP connection to the meter
 	while (meter) {
-		if (meter->isTCP) {
-			//meter->mb = modbus_new_tcp_pi(meter->hostname, const char *service);
-			//do the open when querying the meter to be able to retry of temporary not available
-		} else {	// modbus RTU
-			if (meter->isSerial) {
-				meter->mb = modbusRTU_getmh(meter->serialPortNum);
-				if (*meter->mb == NULL && meter->disabled == 0) {
-					EPRINTFN("%s: serial modbus not yet opened or no serial device specified",meter->name);
-					exit(1);
+		if (!meter->disabled) {
+			if (meter->isTCP) {
+				//meter->mb = modbus_new_tcp_pi(meter->hostname, const char *service);
+				//do the open when querying the meter to be able to retry if temporary not available
+			} else {	// modbus RTU
+				if (meter->isSerial) {
+					VPRINTFN(8,"getting serial port for \"%s\"",meter->name);
+					meter->mb = modbusRTU_getmh(meter->serialPortNum);
+					if (*meter->mb == NULL) {
+						EPRINTFN("%s: serial modbus not yet opened or no serial device specified",meter->name);
+						exit(1);
+					}
+					meter->baudrate = modbusRTU_getBaudrate(meter->serialPortNum);	// RTU only
 				}
-				meter->baudrate = modbusRTU_getBaudrate(meter->serialPortNum);	// RTU only
 			}
 		}
 		meter = meter->next;

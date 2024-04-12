@@ -74,18 +74,18 @@ int  cron_is_due(time_t currTime, cronDef_t *cronDef) {
 
 
 void cron_meter_add(cronDef_t *cronDef, meter_t *meter) {
-	cronMember_t * cm;
+	cronMemberMeter_t * cm;
 
 	//printf("cron_meter_add(%s,%s)\n",cronDef->name,meter->name);
-	cm = (cronMember_t *) calloc(1,sizeof(cronMember_t));
+	cm = (cronMemberMeter_t *) calloc(1,sizeof(cronMemberMeter_t));
 	cm->meter = meter;
 
-	if (! cronDef->members) {
-		cronDef->members = cm;
+	if (! cronDef->memberMeters) {
+		cronDef->memberMeters = cm;
 		if (cronDef->name) meter->hasSchedule++;	// not for default schedule
 		return;
 	}
-	cronMember_t *cm1 = cronDef->members;
+	cronMemberMeter_t *cm1 = cronDef->memberMeters;
 	while (cm1->next) cm1 = cm1->next;
 	cm1->next = cm;
 	if (cronDef->name) meter->hasSchedule++;	// not for default schedule
@@ -114,6 +114,33 @@ void cron_meter_add_byName(char * cronName, meter_t *meter) {
 }
 
 
+int cron_write_add(char *cronName, meterWrites_t * mw) {
+	cronDef_t * cronDef = cronTab;
+	cronDef_t * cd = NULL;
+
+	//printf("cron_meter_add_byName (%s,%s)\n",cronName,meter->name);
+
+	while (cronDef && (cd == NULL)) {
+		if (cronDef->name == cronName) cd = cronDef;	// for default name==NULL
+		else
+			if (cronName)
+				if (cronDef->name)
+					if (strcmp(cronName,cronDef->name) == 0) cd = cronDef;
+		cronDef = cronDef->next;
+	}
+	if (cd) {
+		if (!cronDef->memberWrites) {
+			cronDef->memberWrites = mw;
+			return 0;
+		}
+		meterWrites_t * mW = cronDef->memberWrites;
+		while (mW->next) mW = mW->next;
+		mW->next = mw;
+		return 0;
+	}
+	//EPRINTFN("cron name \"%s\" not defined",cronName);
+	return 1;
+}
 
 
 int parseCron (parser_t * pa) {
@@ -330,7 +357,8 @@ void workerTerminate() {
 
 int cron_queryMeters(int verboseMsg) {
 	meter_t * meter = meters;
-	cronMember_t * cm;
+	meterWrites_t * mw = meterWrites;
+	cronMemberMeter_t * cm;
 	time_t currTime = getCurrTime();
 	int serialMetersDefined = 0;
 	int res;
@@ -347,14 +375,19 @@ int cron_queryMeters(int verboseMsg) {
 		meter = meter->next;
 	}
 
+	while (mw) {
+		mw->isDue = 0;
+		mw = mw->next;
+	}
+
 	// mark all meters of all due schedules and calculate next query time
 	cronDef_t * cd = cronTab;
 	while (cd) {
 		if (cron_is_due(currTime,cd)) {
-			if (cd->members) {
-				VPRINTF(1,"Schedule \"%s\" is due: ",cd->name ? cd->name : "default");
-				cd ->nextQueryTime = cron_next(&cd->cronExpr, currTime);
-				cm = cd->members;
+			VPRINTF(1,"Schedule \"%s\" is due: ",cd->name ? cd->name : "default");
+			cd ->nextQueryTime = cron_next(&cd->cronExpr, currTime);
+			if (cd->memberMeters) {
+				cm = cd->memberMeters;
 				int first=1;
 				while (cm) {
 					assert (cm->meter != NULL);
@@ -367,6 +400,11 @@ int cron_queryMeters(int verboseMsg) {
 					cm = cm->next;
 				}
 				VPRINTFN(1,""); //, next query: %s\n",ctime(&cd->nextQueryTime));
+			}
+			mw = cd->memberWrites;
+			while (mw) {
+				mw->isDue = 1;
+				mw = mw->next;
 			}
 		}
 		cd = cd->next;
@@ -478,6 +516,15 @@ int cron_queryMeters(int verboseMsg) {
 		meter = meter->next;
 	}
 
+
+	// meter writes
+	cd = cronTab;
+	mw = cd->memberWrites;
+	while (mw) {
+		if (mw->isDue) execMeterWrite(mw);
+		mw = mw->next;
+	}
+
 	return numMeters;
 }
 
@@ -490,7 +537,7 @@ void cron_showSchedules() {
 	while (cd) {
 		printf("%-20s%-30s\n%-20s",cd->name==NULL ? "default" : cd->name,cd->cronExpression,"");
 
-		cronMember_t * cm = cd->members;
+		cronMemberMeter_t * cm = cd->memberMeters;
 		int first = 1;
 		while (cm) {
 			if (first>0) printf("Members: ");
@@ -499,6 +546,17 @@ void cron_showSchedules() {
 			first=0;
 		}
 		if(first<1) printf("] ");
+
+		meterWrites_t * mw = cd->memberWrites;
+		first = 1;
+		while (mw) {
+			if (first>0) printf("Write members: ");
+			printf("%c%s",first ? '[' : ',',mw->name);
+			mw = mw->next;
+			first=0;
+		}
+		if(first<1) printf("] ");
+
 		printf("next query: %s\n",ctime(&cd->nextQueryTime));
 		cd = cd->next;
 	}
@@ -526,13 +584,13 @@ int i;
 
   cronDef_t *cd = cronTab;
   cronDef_t *cd2;
-  cronMember_t *cm,*cm2;
+  cronMemberMeter_t *cm,*cm2;
 
   workerTerminate();
 
   while(cd) {
     free(cd->name);
-    cm = cd->members;
+    cm = cd->memberMeters;
     while (cm) {
       cm2 = cm;
       cm = cm->next;

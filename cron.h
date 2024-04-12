@@ -38,10 +38,10 @@ SOFTWARE.
 
 extern int disableThreadedQuery;
 
-typedef struct cronMember_t cronMember_t;
-struct cronMember_t {
+typedef struct cronMemberMeter_t cronMemberMeter_t;
+struct cronMemberMeter_t {
 	meter_t * meter;
-	cronMember_t * next;
+	cronMemberMeter_t * next;
 };
 
 
@@ -49,7 +49,8 @@ typedef struct cronDef_t cronDef_t;
 struct cronDef_t {
 	char *name;			// NULL for default
 	cronDef_t *next;
-	cronMember_t * members;
+	cronMemberMeter_t * memberMeters;
+	meterWrites_t *memberWrites;
 	char * cronExpression;
 	cron_expr cronExpr;
 	time_t nextQueryTime;
@@ -61,6 +62,7 @@ int  cron_is_due(time_t currTime, cronDef_t *cronDef);
 void cron_calc_next(cronDef_t *cronDef);
 void cron_meter_add(cronDef_t *cronDef, meter_t *meter);
 void cron_meter_add_byName(char * cronName, meter_t *meter);
+int cron_write_add(char *cronName, meterWrites_t * mw);
 int parseCron (parser_t * pa);
 void cron_showSchedules();
 

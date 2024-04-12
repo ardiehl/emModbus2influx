@@ -58,5 +58,7 @@ void setTarif (int verboseMsg);
 
 void modbusread_free();
 
+void execMeterWrite(meterWrites_t *mw);
+
 #endif // MODBUSREAD_H_INCLUDED
 
