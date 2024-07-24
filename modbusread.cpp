@@ -12,7 +12,7 @@
 #include <ctype.h>
 #include "global.h"
 #include "math.h"
-#include <endian.h>
+//#include <endian.h>
 #include "m-data.h"
 
 #include "log.h"
@@ -621,6 +621,7 @@ int getRegisterValue (meterRegisterRead_t *rr, uint16_t *buf, int sunspecOffset,
 int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegisters, uint16_t **buf) {
 
 	int res;
+	char function[30];
 
 	*buf = (uint16_t *)calloc(numRegisters,sizeof(uint16_t));
 	if (!*buf) return -1;
@@ -642,9 +643,11 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 	}
 	if (regType == regTypeHolding) {
 		res = modbus_read_registers(*meter->mb, startAddr, numRegisters, *buf);  // holding registers
+		strcpy(function,"modbus_read_registers");
 		VPRINTFN(4,"%s: modbus_read_registers (mb,%d,%d) returned %d",meter->name,startAddr,numRegisters,res);
 	} else {
 		res = modbus_read_input_registers(*meter->mb, startAddr, numRegisters, *buf);
+		strcpy(function,"modbus_read_input_registers");
 		VPRINTFN(4,"%s: modbus_read_input_registers (mb,%d,%d) returned %d",meter->name,startAddr,numRegisters,res);
 	}
 
@@ -657,11 +660,16 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 	}
 
     if(res < 0) {
-    	EPRINTFN("modbus_read_registers (%d registers starting at %d) failed with %d (%s)",numRegisters,startAddr,errno,modbus_strerror(errno));
+    	EPRINTFN("%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",function,numRegisters,startAddr,startAddr,errno,modbus_strerror(errno));
         free(*buf); *buf = NULL;
+	if ((meter->isSerial) && (errno = EIO)) {
+		EPRINTFN("EIO on serial meter, assuming serial port disconnected, terminating");
+		exit(1);	// port may be unplugged, reconnect on restart via systemd or script
+	}
         return -1;
     }
 // untested, do we need that ?
+#if 0
 #if __BYTE_ORDER == __BIG_ENDIAN
 	uint16_t *p = *buf;
 	int i;
@@ -669,8 +677,9 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 		*p = le16toh(*p);
 		p++;
 	}
+kshksfhuih
 #endif // __BYTE_ORDER
-
+#endif
 	return 0;
 }
 
@@ -1112,7 +1121,6 @@ char *character_name_generator(const char *text, int state)
     return NULL;
 }
 
-
 #define PROMPT "> "
 void testRegCalcFormula(char * meterName) {
     char *prompt;
@@ -1495,11 +1503,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 		meterRegisterRead = meter->registerRead;
 		while (meterRegisterRead) {
 			if (meterRegisterRead->isInt) {
-#ifdef BUILD_32
-				printf(" %-20s %10lld\n",meterRegisterRead->registerDef->name,meterRegisterRead->ivalue);
-#else
 				printf(" %-20s %10d\n",meterRegisterRead->registerDef->name,(int)meterRegisterRead->fvalue);
-#endif
 			} else {
 				if (meterRegisterRead->registerDef->decimals == 0)
 					strcpy(format," %-20s %10.0f\n");
@@ -1721,11 +1725,12 @@ void setTarif (int verboseMsg) {
 }
 
 void modbusread_free() {
+#ifndef DISABLE_FORMULAS
   if (parser) {
     delete (parser);
     parser = NULL;
   }
-
+#endif
   modbusTCP_freeAll();
   modbusRTU_freeAll();
 }
@@ -1747,6 +1752,7 @@ void execMeterWrite(meterWrites_t *mw) {
 
 	VPRINTFN(0,"performing writes \"%s\" for %s",mw->name,mw->meter->name);
 	while (w) {
+#ifndef DISABLE_FORMULAS
 		if (w->formula) {
 			mu::Parser * parser = initParser();
 			try {
@@ -1760,6 +1766,7 @@ void execMeterWrite(meterWrites_t *mw) {
 				return;
 			}
 		} else
+#endif
 			val = w->value;
 
 #if LIBMODBUS_VERSION_CHECK(3,1,0)

@@ -1,4 +1,5 @@
 #include "mqtt_publish.h"
+#ifndef DISABLE_MQTT
 #include "MQTTClient.h"
 #include "MQTTClientPersistence.h"
 
@@ -207,3 +208,5 @@ int mqtt_pub_float (mqtt_pubT *m, char *topic, float value, int decimals, int ti
 	snprintf(buf,128,format,value);
 	return mqtt_pub_str(m,topic,buf,1,timeoutMs,qos, retained);
 }
+
+#endif

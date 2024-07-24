@@ -411,7 +411,7 @@ where the [ has to be the first character of a line. Options that can be specifi
 ```name="NameOfMeter"```
 Mandatory, name of the MeterType. The name is used in a meter definition and is case sensitive.
 
-```type==holding```
+```type=holding```
 Optional, default=holding. Specifies for all following read= or registers what type of modbus function will be used for reading the data. Valid values are holding or input.
 
 ```read=start,numRegs```

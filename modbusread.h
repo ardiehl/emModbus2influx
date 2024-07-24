@@ -32,8 +32,11 @@ void modbusRTU_freeAll();
 void setMeterFvalueInfluxLast (meter_t *meter);
 void setMeterFvalueInflux (meter_t * meter);
 
+#ifndef DISABLE_FORMULAS
 int executeMeterTypeFormulas(int verboseMsg, meter_t *meter);
 void executeMeterFormulas(meter_t * meter);
+#endif
+
 void executeInfluxWriteCalc (int verboseMsg, meter_t *meter);
 
 int queryMeter(int verboseMsg, meter_t *meter);

@@ -1,6 +1,8 @@
 #ifndef MQTT_PUBLISH_H_INCLUDED
 #define MQTT_PUBLISH_H_INCLUDED
 
+#ifndef DISABLE_MQTT
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,5 +53,5 @@ int mqtt_pub_float (mqtt_pubT *m, char *topic, float value, int decimals, int ti
 }
 #endif
 
-
+#endif
 #endif // MQTT_PUBLISH_H_INCLUDED

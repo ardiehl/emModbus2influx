@@ -1,0 +1,64 @@
+#!/usr/bin/bash
+# Set up paths and environment for cross compiling for openwrt
+
+# libstdcpp6 needs to be installed on openwrt
+
+checkdir () {
+	if [ ! -d $2 ]; then
+		echo "$1 ($2) does not exist"
+		exit 1
+	fi
+}
+
+checkexe () {
+	if [ ! -x $2 ]; then
+		echo "$1 ($2) does not exist or is not executable"
+		exit 1
+	fi
+}
+
+TARGET_ARCH=mips-openwrt-linux-musl
+export ARCH=mips_24kc
+#export CROSS_COMPILE="mips-openwrt-linux-uclibc"
+
+SSL_DYNLIBS="-lz -lssl -lcrypto"
+
+export TOOLCHAIN_DIR=/usr/local/openwrt-toolchain-ath79-generic_gcc-12.3.0_musl.Linux-x86_64/toolchain-mips_24kc_gcc-12.3.0_musl
+checkdir TOOLCHAIN_DIR $TOOLCHAIN_DIR
+
+export STAGING_DIR=$TOOLCHAIN_DIR
+
+export LDCFLAGS=$TOOLCHAIN_DIR/lib
+checkdir LDCFLAGS $LDCFLAGS
+
+export LD_LIBRARY_PATH=$TOOLCHAIN_DIR/lib
+checkdir LD_LIBRARY_PATH $LD_LIBRARY_PATH
+
+export PATH=$TOOLCHAIN_DIR/bin:$PATH
+export CC="$TOOLCHAIN_DIR/bin/$TARGET_ARCH-gcc"
+checkexe gcc $CC
+
+export CROSS_COMPILE=`$CC -dumpmachine`
+
+export CXX="$TOOLCHAIN_DIR/bin/$TARGET_ARCH-g++"
+checkexe c++ $CXX
+
+
+export AR=$TOOLCHAIN_DIR/bin/$TARGET_ARCH-ar
+checkexe ar $AR
+
+export AS=$TOOLCHAIN_DIR/bin/$TARGET_ARCH-as
+checkexe as $AS
+
+export LD=$TOOLCHAIN_DIR/bin/$TARGET_ARCH-ld
+checkexe $TARGET_ARCH-ld $LD
+
+export RANLIB=$TOOLCHAIN_DIR/bin/$TARGET_ARCH-ranlib
+checkexe $TARGET_ARCH-ranlib $RANLIB
+
+export NM=$TOOLCHAIN_DIR/bin/$TARGET_ARCH-nm
+checkexe $TARGET_ARCH-nm $NM
+
+make SSL_DYNLIBS="$SSL_DYNLIBS" ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE DISABLE_MQTT=0 DISABLE_CURLSSL=0 FORMULASUPPORT=1 MUPARSERSTATIC=1 PAHOSTATIC=1 CURLSTATIC=1 MODBUSSTATIC=1 $*
+
+

@@ -21,8 +21,9 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include <time.h>
 
 #include "log.h"
-
+#ifndef DISABLE_MQTT
 #include "mqtt_publish.h"
+#endif
 
 #include "influxdb-post/influxdb-post.h"
 #include "meterDef.h"
@@ -33,14 +34,23 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "global.h"
 #include <endian.h>
 #include "cron.h"
+#include <inttypes.h>
+#ifdef CURL_STATIC
+#include "curl/curl.h"
+#else
+#include <curl/curl.h>
+#endif
+
 
 #ifndef DISABLE_FORMULAS
 #include "muParser.h"
 #endif
 
+#ifndef DISABLE_MQTT
 #include "MQTTClient.h"
+#endif
 
-#define VER "1.18 Armin Diehl <ad@ardiehl.de> Apr 12,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.20 Armin Diehl <ad@ardiehl.de> Jul 24,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -52,8 +62,9 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 // grafana will, after some time, show "NO DATA"
 #define MQTT_SEND_UNCHANGED
 
-
+#ifndef DISABLE_FORMULAS
 extern double formulaNumPolls;
+#endif
 char *configFileName;
 char * serDevice;
 char * serBaudrate;
@@ -70,7 +81,9 @@ int scanRTUReg;
 int modbusDebug;
 influx_client_t *iClient;
 
+#ifndef DISABLE_MQTT
 mqtt_pubT *mClient;
+#endif
 
 #define MQTT_PREFIX_DEF "ad/house/energy/"
 
@@ -94,6 +107,7 @@ int scan;
 int scanStart;
 int scanEnd = 0xffff;
 char * scanHost;
+char * scanPort = strdup("502");
 int scanAddr;
 int scanInput;
 int scanHolding;
@@ -120,7 +134,7 @@ void scanAddresses() {
 	}
 
 	if (scanHost) {
-		ctx = modbus_new_tcp_pi(scanHost, "502");
+		ctx = modbus_new_tcp_pi(scanHost, scanPort);
 	} else {
 		ctx = *modbusRTU_getmh(0);
 		isSerial++;
@@ -136,7 +150,10 @@ void scanAddresses() {
 
 	res = modbus_connect(ctx);
 	if (res != 0) {
-		fprintf(stderr,"unable to connect to %s (%s)\n",scanHost ? scanHost : "Serial0" ,modbus_strerror(errno));
+		if (scanHost) {
+			fprintf(stderr,"unable to connect to %s:%s (%s)\n",scanHost,scanPort,modbus_strerror(errno));
+		} else
+			fprintf(stderr,"unable to connect to Serial0 (%s)\n",modbus_strerror(errno));
 		return;
 	}
 
@@ -209,17 +226,31 @@ int syslogTestCallback(argParse_handleT *a, char * arg) {
 
 
 int showVersionCallback(argParse_handleT *a, char * arg) {
+#ifndef DISABLE_MQTT
 	MQTTClient_nameValue* MQTTVersionInfo;
 	char *MQTTVersion = NULL;
 	int i;
+#endif
 
 	printf("%s %s\n",ME,VER);
-	printf("  libmodbus: %d.%d.%d\n",LIBMODBUS_VERSION_MAJOR,LIBMODBUS_VERSION_MINOR,LIBMODBUS_VERSION_MICRO);
-#ifndef DISABLE_FORMULAS
-	//printf("   muparser: %s\n",mu::ParserVersion.c_str());
+	printf("  libmodbus: %d.%d.%d - ",LIBMODBUS_VERSION_MAJOR,LIBMODBUS_VERSION_MINOR,LIBMODBUS_VERSION_MICRO);
+#ifdef MODBUS_STATIC
+	printf("static\n");
 #else
-	//printf("  muparser: disabled at compile time\n");
+	printf("dynamic\n");
 #endif
+#ifndef DISABLE_FORMULAS
+	printf("   muparser: %s - ",mu::ParserVersion.c_str());
+#ifdef MUPARSER_STATIC
+	printf("static\n");
+#else
+	printf("dynamic\n");
+#endif
+#else
+	printf("  muparser: disabled at compile time\n");
+#endif
+
+#ifndef DISABLE_MQTT
 	MQTTVersionInfo = MQTTClient_getVersionInfo();
 	i = 0;
 	while (MQTTVersionInfo[i].name && MQTTVersion == NULL) {
@@ -229,10 +260,28 @@ int showVersionCallback(argParse_handleT *a, char * arg) {
 		}
 		i++;
 	}
-	if (MQTTVersion)
-	printf("paho mqtt-c: %s\n",MQTTVersion);
+	if (MQTTVersion) {
+		printf("paho mqtt-c: %s - ",MQTTVersion);
+#ifdef PAHO_STATIC
+		printf("static\n");
+#else
+		printf("dynamic\n");
+#endif
+	}
+#else
+	printf("paho mqtt-c: disabled at compile time\n");
+#endif
+
+	curl_version_info_data *ver = curl_version_info(CURLVERSION_NOW);
+	printf("    libcurl: %u.%u.%u - ", (ver->version_num >> 16) & 0xff, (ver->version_num >> 8) & 0xff, ver->version_num & 0xff);
+#ifdef CURL_STATIC
+		printf("static\n");
+#else
+		printf("dynamic\n");
+#endif
+
 #ifdef __GNUC__
-    printf("        gcc: " __VERSION__ "\n");
+	printf("        gcc: " __VERSION__ "\n");
 #endif
 	exit(2);
 }
@@ -289,6 +338,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (0, 0 ,"influxwritemult",&influxWriteMult      ,"Influx write multiplicator")
 		AP_OPT_INTVAL       (1,0  ,"isslverifypeer" ,&iVerifyPeer          ,"Influx SSL certificate verification (0=off)")
 		AP_OPT_INTVAL       (1,'c',"cache"          ,&numQueueEntries      ,"#entries for influxdb cache")
+#ifndef DISABLE_MQTT
 		AP_OPT_STRVAL       (1,'M',"mqttserver"     ,&mClient->hostname    ,"mqtt server name or ip")
 		AP_OPT_STRVAL       (1,'C',"mqttprefix"     ,&mqttprefix           ,"prefix for mqtt publish")
 		AP_OPT_STRVAL       (1,0  ,"mqttstatprefix" ,&mqttstatprefix       ,"prefix for mqtt statistics publish")
@@ -297,7 +347,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'l',"mqttdelay"      ,&mqttDelayMs          ,"delay milliseconds after mqtt publish")
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
 		AP_OPT_STRVAL       (1,'i',"mqttclientid"   ,&mClient->clientId    ,"mqtt client id")
-
+#endif
 		AP_OPT_STRVAL       (1,0  ,"ghost"          ,&ghost                ,"grafana server url w/o port, e.g. ws://localost or https://localhost")
 		AP_OPT_INTVAL       (1,0  ,"gport"          ,&gport                ,"grafana port")
 		AP_OPT_STRVAL       (1,0  ,"gtoken"         ,&gtoken               ,"authorisation api token for Grafana")
@@ -324,6 +374,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1, 0 ,"scanstart"      ,&scanStart            ,"register to start scan with")
 		AP_OPT_INTVAL       (1, 0 ,"scanend"        ,&scanEnd              ,"register to end scan with")
 		AP_OPT_STRVAL       (0, 0 ,"scanhost"       ,&scanHost             ,"TCP hostname, if not specified Modbus RTU will be used for scan")
+		AP_OPT_STRVAL       (0, 0 ,"scanport"       ,&scanPort             ,"TCP port number or name")
 		AP_OPT_INTVAL       (1, 0 ,"scanaddr"       ,&scanAddr             ,"Modbus address to scan")
 		AP_OPT_INTVALF      (1, 0 ,"scaninput"      ,&scanInput            ,"scan input registers (default=both)")
 		AP_OPT_INTVALF      (1, 0 ,"scanholding"    ,&scanHolding          ,"scan holding registers (default=both)")
@@ -348,7 +399,8 @@ int parseArgs (int argc, char **argv) {
 	if (configFileName == NULL) configFileName = strdup(CONFFILE);
 
 	a = argParse_init(argopt, configFileName, NULL,
-		"The cache will be used in case the influxdb server is down. In\n" \
+
+	"The cache will be used in case the influxdb server is down. In\n" \
         "that case data will be send when the server is reachable again.\n");
 	res = argParse (a, argc, argv, 0);
 	if (res != 0) {
@@ -372,12 +424,13 @@ int parseArgs (int argc, char **argv) {
 			if (password) EPRINTF("Warning: password ignored for influxdb v2 api\n");
 		}
 	}
-
+#ifndef DISABLE_MQTT
 	if (mClient->hostname) {
 		if (!mqttprefix) {
 			EPRINTF("mqttprefix required\n"); exit(1);
 		}
 	}
+#endif
 
 	if (syslog) log_setSyslogTarget(ME);
 
@@ -385,16 +438,16 @@ int parseArgs (int argc, char **argv) {
 		if (serverName) {
 			LOG(1,"Influx init: serverName: %s, port %d, dbName: %s, userName: %s, password: %s, org: %s, bucket:%s, numQueueEntries %d\n",serverName, port, dbName, userName, password, org, bucket, numQueueEntries);
 			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries, iVerifyPeer);
-		} else {
-			free(dbName);
-			free(serverName);
-			free(userName);
-			free(password);
-			free(bucket);
-			free(org);
-			free(token);
 		}
 	}
+
+	free(dbName);
+	free(serverName);
+	free(userName);
+	free(password);
+	free(bucket);
+	free(org);
+	free(token);
 
 	argParse_free (a);
 
@@ -452,11 +505,8 @@ void appendValue (int includeName, meterRegisterRead_t *rr, char **dest, int *le
 	char *p = &valbuf[0];
 
 	if (rr->isInt) {
-#ifdef BUILD_64
-		snprintf(valbuf,VALBUFLEN,"%d",(int) rr->fvalue);
-#else
-		snprintf(valbuf,VALBUFLEN,"%ld",(int) rr->fvalue);
-#endif
+		//snprintf(valbuf,VALBUFLEN,"%lld",(int64_t) rr->fvalue);
+		snprintf(valbuf,VALBUFLEN,"%" PRId64,(int64_t) rr->fvalue);
 	} else {
 		snprintf(format,sizeof(format),"%%%d.%df",10+rr->registerDef->decimals,rr->registerDef->decimals);
 		snprintf(valbuf,VALBUFLEN,format,rr->fvalue);
@@ -483,11 +533,7 @@ void appendFormulaValue (int includeName, meterFormula_t *mf, char **dest, int *
 
 
 	if (mf->forceType == force_int) {
-#ifdef BUILD_64
-		snprintf(valbuf,VALBUFLEN,"%d",(int) mf->fvalue);
-#else
-		snprintf(valbuf,VALBUFLEN,"%ld",(int) mf->fvalue);
-#endif
+		snprintf(valbuf,VALBUFLEN,"%" PRId64,(int64_t) mf->fvalue);
 	} else {
 		snprintf(format,sizeof(format),"%%%d.%df",10+mf->decimals,mf->decimals);
 		snprintf(valbuf,VALBUFLEN,format,mf->fvalue);
@@ -508,6 +554,7 @@ void appendFormulaValue (int includeName, meterFormula_t *mf, char **dest, int *
 
 #define APPEND(SRC) appendToStr(SRC,&buf,&buflen,&bufsize)
 
+#ifndef DISABLE_MQTT
 int mqttSendData (meter_t * meter,int dryrun) {
 	int bufsize = INITIAL_BUFFER_LEN;
 	char *buf;
@@ -697,7 +744,7 @@ int mqttSendData (meter_t * meter,int dryrun) {
 
 	return rc;
 }
-
+#endif
 
 
 int influxAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
@@ -926,7 +973,7 @@ int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
 }
 
 
-
+#ifndef DISABLE_MQTT
 void traceCallback(enum MQTTCLIENT_TRACE_LEVELS level, char *message) {
 	printf(message); printf("\n");
 }
@@ -958,7 +1005,7 @@ void mqttSendMeterData(double queryTime) {
 		}
 	}
 }
-
+#endif
 
 int main(int argc, char *argv[]) {
 	int rc,i;
@@ -968,7 +1015,6 @@ int main(int argc, char *argv[]) {
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
 	double queryTime;
 	int numMeters;
-	extern double formulaNumPolls;
 
 	//printf("byte_order: %d\n",__BYTE_ORDER);
 
@@ -977,9 +1023,11 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
+#ifndef DISABLE_MQTT
 	mqttprefix = strdup(MQTT_PREFIX_DEF);
 
 	mClient = mqtt_pub_init (NULL, 0, MQTT_CLIENT_ID, NULL);
+#endif
 
 	if (parseArgs(argc,argv) != 0) exit(1);
 
@@ -989,8 +1037,10 @@ int main(int argc, char *argv[]) {
 	readMeterDefinitions (CONFFILE);
 	printf("free meters\n");
 	freeMeters();
+#ifndef DISABLE_MQTT
 	free(mqttprefix);
 	if (mClient) mqtt_pub_free(mClient);
+#endif
 	influxdb_post_free(iClient);
 	exit(1);
 #endif
@@ -1069,7 +1119,9 @@ int main(int argc, char *argv[]) {
 			   "=======================================\n");
 		rc = queryMeters(dumpRegisters);
 		setTarif (1);
+#ifndef DISABLE_FORMULAS
 		testRegCalcFormula(formulaValMeterName);
+#endif
         exit(1);
 	}
 
@@ -1078,7 +1130,9 @@ int main(int argc, char *argv[]) {
 			   "=======================================\n");
 		rc = queryMeters(dumpRegisters);
 		setTarif (1);
+#ifndef DISABLE_FORMULAS
 		testRegCalcFormula(NULL);
+#endif
         exit(1);
 	}
 
@@ -1093,7 +1147,7 @@ int main(int argc, char *argv[]) {
 	} else
 		LOGN(0,"no grafana host,token and pushid specified, grafana sender disabled");
 
-
+#ifndef DISABLE_MQTT
 	if (!mClient->hostname) {
 		mqtt_pub_free(mClient);
 		mClient = NULL;
@@ -1109,10 +1163,10 @@ int main(int argc, char *argv[]) {
 			if (rc != 0) {
 				LOGN(0,"mqtt_pub_connect returned %d, will retry later",rc);
 			}
-			else LOGN(0,"Connected to mqtt server %s",iClient->host);
+			//else LOGN(0,"Connected to mqtt server %s",iClient->host);
 		}
 	}
-
+#endif
 
 
 	if (doTry) {
@@ -1155,7 +1209,9 @@ int main(int argc, char *argv[]) {
 	rc = queryMeters(verbose);
 	clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 	queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+#ifndef DISABLE_FORMULAS
 	formulaNumPolls++;
+#endif
 	if (dryrun || (verbose>0))
 			printf("Initial query took %4.2f seconds\n",queryTime);
 	if (rc <= 0) {
@@ -1171,14 +1227,17 @@ int main(int argc, char *argv[]) {
 		meter->queryTimeNanoMax = 0;
 		meter=meter->next;
 	}
-
+#ifndef DISABLE_MQTT
 	if (!dryrun) mqttSendMeterData(queryTime);	// initially send all data to mqtt
+#endif
 
 	workerInit(meterSerialGetNumDevices(), dryrun || (verbose>0));
 
 	int loopCount = 0;
 	while (!terminated) {
+#ifndef DISABLE_MQTT
 		mqtt_pub_yield (mClient); 					// for mqtt ping, seeps for 100ms if no mqqt specified
+#endif
 		if (gClient) influxdb_post_http(gClient);	// for websocket ping
 		//msleep(200);
 		//printf("."); fflush(stdout);
@@ -1186,7 +1245,9 @@ int main(int argc, char *argv[]) {
 		if (isFirstQuery) rc = 1;
 		else rc = cron_queryMeters(dryrun || verbose>0);
 		if (rc > 0) {
+#ifndef DISABLE_FORMULAS
 			formulaNumPolls++;
+#endif
 			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 			loopCount++;
 			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
@@ -1261,7 +1322,9 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
+#ifndef DISABLE_MQTT
 			mqttSendMeterData(queryTime);
+#endif
 
 			if (dryrun) {
 				dryrun--;
@@ -1282,7 +1345,9 @@ int main(int argc, char *argv[]) {
 	freeFormulaParser();
 #endif // DISABLE_FORMULAS
 
+#ifndef DISABLE_MQTT
 	if (mClient) mqtt_pub_free(mClient);
+#endif
 	influxdb_post_free(iClient);
 	influxdb_post_free(gClient);
 
@@ -1291,6 +1356,7 @@ int main(int argc, char *argv[]) {
 	modbusread_free();
 
 	// cat emModbus2influx.cpp | grep AP_OPT_STRVAL | awk -F, '{gsub(/[ \t]+$/, "", $4); print "free("substr($4,2,255)");"}'
+
 	free(serDevice);
 	free(serBaudrate);
 	free(serParity);
@@ -1298,20 +1364,15 @@ int main(int argc, char *argv[]) {
 	free(ser_rs485);
 	free(influxMeasurement);
 	free(influxTagName);
-	//free(serverName);
-	//free(dbName);
-	//free(userName);
-	//free(password);
-	//free(bucket);
-	//free(org);
-	//free(token);
-	//free(mClient->hostname);
+#ifndef DISABLE_MQTT
 	free(mqttprefix);
 	free(mqttstatprefix);
-	//free(mClient->clientId);
+#endif
 	free(ghost);
 	free(gtoken);
 	free(gpushid);
+
+	free(configFileName);
 	free(cronExpression);
 
 	PRINTFN("terminated");

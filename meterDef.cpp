@@ -1076,10 +1076,9 @@ int parseWrites (parser_t * pa) {
 	meterWrites_t *mw = (meterWrites_t *)calloc(1,sizeof(meterWrites_t));
 	meterWrite_t *w = NULL;
 	int disableSpecified = 0;
-	regType_t currRegType = regTypeRegister;
+	regType_t currRegType;
 
 	char errMsg[255];
-	int i;
 
 	parserExpect(pa,TK_EOL);  // after section
 
