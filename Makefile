@@ -248,11 +248,12 @@ $(MODBUSMAKE):        $(MODBUSTAR)
 	@echo "unpacking $(MODBUSTAR)"
 	@$(MAKEDIR) $(MODBUSDIR)
 	@cd $(MODBUSDIR) && $(TAR) x --gunzip < $(MODBUSTAR);
+	
+
+$(MODBUSLIB): $(MODBUSMAKE) | $(OBJDIR)
 	@echo "Generating Makefile"
 	@cd $(MODBUSMAKEDIR) && ./configure -q $(CONFIGUREHOST)
 	@echo
-
-$(MODBUSLIB): $(MODBUSMAKE) | $(OBJDIR)
 	@echo "Compiling modbus"
 	@$(MAKE) -s -C $(MODBUSMAKEDIR) $(SILENT)
 	@echo "Generating $(MODBUSLIB)"

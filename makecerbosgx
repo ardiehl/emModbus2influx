@@ -1,0 +1,38 @@
+#!/bin/bash
+# build the executables for a Victron Cerbos GX
+# the Victronenergy Venus SDK needs to be installed
+# in my case in /opt/venus/gerbosgx
+
+BASEDIR=/opt/venus/cerbosgx
+BINDIR=$BASEDIR/sysroots/x86_64-ve-linux/usr/bin/arm-ve-linux-gnueabi
+
+checkdir () {
+        if [ ! -d $2 ]; then
+                echo "$1 ($2) does not exist"
+                exit 1
+        fi
+}
+
+checkexe () {
+        if [ ! -x $2 ]; then
+                echo "$1 ($2) does not exist or is not executable"
+                exit 1
+        fi
+}
+
+
+checkdir cerbosgxbasedir $BASEDIR
+. /opt/venus/cerbosgx/environment-setup-cortexa7hf-neon-vfpv4-ve-linux-gnueabi
+export CC=$BINDIR/$CC
+checkexe cc $CC
+export CPP=$BINDIR/$CPP
+checkexe c++ $CPP
+export AR=$BINDIR/$AR
+checkexe ar $AR
+
+export CROSS_COMPILE=`$CC -dumpmachine`
+
+SSL_DYNLIBS="-lz -lssl -lcrypto"
+
+make SSL_DYNLIBS="$SSL_DYNLIBS" CONFIGURE_FLAGS="$CONFIGURE_FLAGS" DISABLE_MQTT=0 DISABLE_CURLSSL=0 FORMULASUPPORT=1 MUPARSERSTATIC=1 PAHOSTATIC=1 CURLSTATIC=1 MODBUSSTATIC=1 $*
+
