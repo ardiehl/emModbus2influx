@@ -1105,8 +1105,49 @@ int main(int argc, char *argv[]) {
 	if (dumpRegisters) {
 		printf("Querying all meters\n" \
 			   "===================\n");
-		rc = queryMeters(dumpRegisters);
-		setTarif (1);
+		rc = queryMeters(0);
+		meter = meters;
+		while(meter) {
+			if(!meter->disabled) {
+				if (meter->meterHasBeenRead || meter->isFormulaOnly) {
+					printf("\n%s (%s):\n",meter->name,meter->meterType ? meter->meterType->name : "formula only");
+					meterRegisterRead_t *rr;
+					meterFormula_t *mf;
+					int bufSize = 100;
+					int bufLen = 0;
+					char *buf = (char *)calloc(1,bufSize);
+
+					//       123456789012345678901234567890 Addr   IMG Value
+					printf(" Field                          Addr   IMG Value\n");
+					printf(" -----------------------------------------------------\n");
+
+					rr = meter->registerRead;
+					while (rr) {
+					//void appendValue (int includeName, meterRegisterRead_t *rr, char **dest, int *len, int *bufsize)
+						bufLen = 0; *buf = 0;
+						appendValue(0,rr,&buf,&bufLen,&bufSize);
+						printf(" %-30s 0x%04x %d%d%d %s\n",rr->registerDef->name,rr->registerDef->startAddr,
+							rr->registerDef->enableInfluxWrite,rr->registerDef->enableMqttWrite,rr->registerDef->enableGrafanaWrite,buf);
+						rr = rr->next;
+					}
+
+					// registers from meter specific formulas
+
+					mf = meter->meterFormula;
+					while (mf) {
+						bufLen = 0; *buf = 0;
+						appendFormulaValue(0,mf,&buf,&bufLen,&bufSize);
+						printf(" %-30s        %d%d%d %s\n",mf->name,
+							mf->enableInfluxWrite,mf->enableMqttWrite,mf->enableGrafanaWrite,buf);
+						mf = mf->next;
+
+					}
+					free(buf);
+				}
+			}
+			meter = meter->next;
+		}
+		//setTarif (1);
 		exit(1);
 	}
 

@@ -1,0 +1,91 @@
+#!/bin/sh
+# /etc/hotplug.d/usb/20-adusb
+# set device links for ftdi serial device based on ftdi serial number
+# as openwrt no longer supports udev
+# A.Diehl 07/2024
+ME="/etc/hotplug.d/usb/20-adusb"
+LOGFILE=/tmp/hotplugusb.log
+VERBOSE=0
+VERBOSELOG=0
+
+log () {
+	logger -t ${ME} "$*"
+	[ "${VERBOSELOG}" = "1" ] && echo "$*" >>${LOGFILE}
+}
+
+logv () {
+	[ "${VERBOSE}" = "1" ] && log $*
+}
+
+logv "${ME} ------- ${ACTION} ${PRODUCT}"
+
+if [ "${VERBOSE}" = "1" ]; then
+	log "ACTION: ${ACTION}"
+	log "DEVICENAME: ${DEVICENAME}"
+	log "DEVNAME: ${DEVNAME}"
+	log "DEVNUM: ${DEVNUM}"
+	log "DEVPATH: ${DEVPATH}"
+	log "DEVTYPE: ${DEVTYPE}"
+	log "TYPE: ${TYPE}"
+	log "PRODUCT: ${PRODUCT}"
+	log "SEQNUM: ${SEQNUM}"
+	log "BUSNUM: ${BUSNUM}"
+	log "MAJOR: ${MAJOR}"
+	log "MINOR: ${MINOR}"
+fi
+
+FTDI_PRODID="403/6001/600"
+
+if [ "${PRODUCT}" = "${FTDI_PRODID}" ]; then
+	DEVFILE="/tmp/hotplug-usb$(echo ${DEVPATH} | tr / _)"
+	logv "DEVFILE: ${DEVFILE}"
+	if [ "${ACTION}" = "remove" ]; then
+		if [ -f ${DEVFILE} ]; then
+			SYMLINK=$(cat $DEVFILE)
+			[ "${VERBOSE}" = "1" ] && logger -t ${ME} "SYMLINK: ${SYMLINK}"
+ 			if [ -L ${SYMLINK} ]; then
+				rm -f ${SYMLINK}
+				log "symlink ${SYMLINK} removed"
+			fi
+			rm -f ${DEVFILE}
+		fi
+		exit 0
+	fi
+
+#	DEVICE_TTY="$(ls -d /sys${DEVPATH}/tty*)"                              
+#       [ ! -z ${DEVICE_TTY} ] && DEVICE_TTY=$(basename ${DEVICE_TTY})         
+#       logv "DEVICE_TTY: ${DEVICE_TTY}"                                       
+#       if [ ! -f /sys${DEVPATH}/../serial ]; then                             
+#          logv "unable to get serial number for ftdi devive, /sys${DEVPATH}/../serial not found"
+#          exit 0                                                                                
+#        fi                                                                                            
+#        DEVICE_SERIAL="$(cat /sys${DEVPATH}/../serial)"                                               
+#        logv "FTDI serial: ${DEVICE_SERIAL}"      
+
+# add works but not on boot
+	if [ "${ACTION}" = "bind" ]; then
+		DEVICE_TTY="$(ls -d /sys${DEVPATH}/tty*)"
+		[ ! -z ${DEVICE_TTY} ] && DEVICE_TTY=$(basename ${DEVICE_TTY})
+		logv "DEVICE_TTY: ${DEVICE_TTY}"
+		if [ ! -f /sys${DEVPATH}/../serial ]; then
+			logv "unable to get serial number for ftdi devive, /sys${DEVPATH}/../serial not found"
+			exit 0
+		fi
+		DEVICE_SERIAL="$(cat /sys${DEVPATH}/../serial)"
+		logv "FTDI serial: ${DEVICE_SERIAL}"
+
+    		if [ ! -z ${DEVICE_TTY} ]; then
+			case ${DEVICE_SERIAL} in
+				B001UTBC)	SYMLINK="/dev/ttyUSB_epever" ;;
+				B0005ZOF)	SYMLINK="/dev/ttyUSB_jkbms" ;;
+				A50285BI)	SYMLINK="/dev/ttyUSB_ftdifake_${DEVICENAME}" ;;
+				*)		log "unknown ftdi serial ${DEVICE_SERIAL}"; exit 0 ;;
+			esac
+
+			ln -sf /dev/${DEVICE_TTY} ${SYMLINK}
+			log "created symlink ${SYMLINK} to /dev/${DEVICE_TTY}"
+			echo "${SYMLINK}" > ${DEVFILE}
+		fi
+	fi
+fi
+
