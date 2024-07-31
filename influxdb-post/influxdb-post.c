@@ -752,7 +752,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len) {
 				c->ch = NULL;	// reconnect next time
 				EPRINTFN("curl_ws_send to \"%s\" closed connection",c->url);
 				free(c->url); c->url = NULL;
-				kill(getpid(),SIGINT);	// terminate for debug
+				//kill(getpid(),SIGINT);	// terminate for debug
 				return -1;
 			}
 			len -= sent;
