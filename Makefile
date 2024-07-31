@@ -46,7 +46,7 @@ ifndef j
 j = 8
 endif
 MAKE           = make -j$(j)
-WGET           = wget -q --show-progress
+WGET           = wget
 TAR            = tar
 MAKEDIR        = mkdir -p
 RM             = rm -f
@@ -179,7 +179,7 @@ endif
 
 ifeq ($(CURLSTATIC),1)
 CURLVERSION2 = $(subst .,_,$(CURLVERSION))
-CURLVERSION  = 8.7.1
+CURLVERSION  = 8.9.1
 CURLSRCFILE  = curl-$(CURLVERSION).tar.xz
 CURLSRC      = https://github.com/curl/curl/releases/download/curl-$(CURLVERSION2)/$(CURLSRCFILE)
 CURLDIR      = curl-$(ARCH)
@@ -189,7 +189,7 @@ CURLMAKE     = $(CURLMAKEDIR)/Makefile
 CURLLIB      = $(CURLMAKEDIR)/lib/.libs/libcurl.a
 LIBS         += $(CURLLIB)
 CPPFLAGS     += -I$(CURLMAKEDIR)/include -DCURL_STATIC
-CURLCONFIG   =  $(CONFIGUREHOST) --disable-file --disable-ldap --disable-ldaps --disable-tftp --disable-dict --without-libidn2 --enable-websockets --disable-ftp --disable-rtsp --disable-telnet --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-manual --disable-ntlm --disable-unix-sockets --disable-cookies --without-brotli
+CURLCONFIG   =  $(CONFIGUREHOST) --disable-file --disable-ldap --disable-ldaps --disable-tftp --disable-dict --without-libidn2 --enable-websockets --disable-ftp --disable-rtsp --disable-telnet --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-manual --disable-ntlm --disable-unix-sockets --disable-cookies --without-brotli --disable-docs
 ifneq ($(DISABLE_CURLSSL),1)
 CURLCONFIG   += --with-openssl
 ifndef SSL_DYNLIBS
@@ -300,7 +300,7 @@ $(CURLMAKE):        $(CURLTAR)
 	@$(MAKEDIR) $(CURLDIR)
 	@cd $(CURLDIR) && $(XZUNPACK) $(DOWNLOADDIR)/$(CURLSRCFILE) | $(TAR) x
 	@echo "Generating Makefile" # using $(CURLCONFIG)"
-	cd $(CURLMAKEDIR); ./configure --silent $(CURLCONFIG)
+	cd $(CURLMAKEDIR); ./configure $(CURLCONFIG)
 	@echo
 
 $(CURLLIB): $(CURLMAKE)
