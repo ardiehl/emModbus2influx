@@ -850,7 +850,12 @@ mu::Parser *currParser;     // used for auto complete (tab) in formula eval
 
 using namespace mu;
 
+static int  Round(value_type v) { return (int)(v + ((v >= 0) ? 0.5 : -0.5)); };
 static value_type Rnd(value_type v) { return v * std::rand() / (value_type)(RAND_MAX + 1.0); }
+static value_type bit(value_type v1, value_type v2) { return ((Round(v2) >> Round(v1)) & 1); }
+static value_type Shr(value_type v1, value_type v2) { return Round(v1) >> Round(v2); }
+static value_type Shl(value_type v1, value_type v2) { return Round(v1) << Round(v2); }
+
 
 double formulaNumPolls;
 
@@ -865,7 +870,10 @@ mu::Parser * initParser() {
         parser = new (mu::Parser);
         parser-> DefineNameChars(MUPARSER_ALLOWED_CHARS);
         parser->DefineFun(_T("rnd"), Rnd, false);     // Add an unoptimizeable function
+	parser->DefineFun(_T("bit"), bit, true);
         parser->DefineVar("__polls",&formulaNumPolls);
+	parser->DefineOprt(_T(">>"), Shr, prMUL_DIV + 1);
+        parser->DefineOprt(_T("<<"), Shl, prMUL_DIV + 1);
         // add all variables using their fully qualified name (MeterName.VariableName)
         while (meter) {
             if (meter->disabled == 0) {
@@ -903,6 +911,10 @@ mu::Parser * initLocalParser(meter_t *meter) {
     parser-> DefineNameChars(MUPARSER_ALLOWED_CHARS);
     parser->DefineFun(_T("rnd"), Rnd, false);     // Add an unoptimizeable function
     parser->DefineVar("__polls",&formulaNumPolls);
+    parser->DefineFun(_T("bit"), bit, true);
+    parser->DefineOprt(_T(">>"), Shr, prMUL_DIV + 1);
+    parser->DefineOprt(_T("<<"), Shl, prMUL_DIV + 1);
+
     // add all local meter variables using their local name
     registerRead = meter->registerRead;
     while (registerRead) {
