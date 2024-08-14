@@ -915,7 +915,8 @@ int parseMeter (parser_t * pa) {
 	if (meter->meterType) {
 		if (meter->mqttprefix == NULL)
 			if (meter->meterType->mqttprefix) meter->mqttprefix = strdup(meter->meterType->mqttprefix);
-		if ((! meter->meterType->meterReads) || (meter->disabled)) {
+		//if ((! meter->meterType->meterReads) || (meter->disabled)) {
+		if (meter->disabled) {
 			meter->isTCP = 0;
 			meter->isSerial = 0;
 		} else {
@@ -1076,7 +1077,7 @@ int parseWrites (parser_t * pa) {
 	meterWrites_t *mw = (meterWrites_t *)calloc(1,sizeof(meterWrites_t));
 	meterWrite_t *w = NULL;
 	int disableSpecified = 0;
-	regType_t currRegType;
+	regType_t currRegType = regTypeHolding;
 
 	char errMsg[255];
 
@@ -1092,8 +1093,8 @@ int parseWrites (parser_t * pa) {
 				parserExpect(pa,TK_EQUAL);
 				tk = parserGetToken(pa);
 				switch (tk) {
-					case TK_REGISTER:
-						currRegType = regTypeRegister;
+					case TK_HOLDING:
+						currRegType = regTypeHolding;
 						break;
 					case TK_COIL:
 						currRegType = regTypeCoil;
@@ -1122,7 +1123,7 @@ int parseWrites (parser_t * pa) {
                 parserExpectEqual(pa,TK_INTVAL);
                 mw->disabled = pa->iVal;
                 break;
-			case TK_WRITE:
+			case TK_WRITE: {
 				if (!mw->meter) parserError(pa,"can not parse write without a specified meter");
 				w = (meterWrite_t *)calloc(1,sizeof(meterWrite_t));
 				parserExpectEqual(pa,TK_STRVAL);	// register name
@@ -1144,7 +1145,14 @@ int parseWrites (parser_t * pa) {
 					default:
 						parserError(pa,"value or formula expected");
 				}
+				meterWrite_t *wtemp = mw->meterWrite;
+				if (wtemp) {
+					while (wtemp->next) wtemp = wtemp->next;
+					wtemp->next = w;
+				} else
+					mw->meterWrite = w;
 				break;
+			}
             default:
 				strncpy(errMsg,"unexpected identifier ",sizeof(errMsg)-1);
 				if (tk != TK_IDENT) strncat(errMsg,parserGetTokenTxt(pa,tk),sizeof(errMsg)-1);
@@ -1159,7 +1167,8 @@ int parseWrites (parser_t * pa) {
 	}
 
 	if (!mw->meter) parserError(pa,"no meter specified for write");
-	if (!mw->meterWrite) parserError(pa,"no registers ro write to specified");
+	if (!mw->meterWrite) parserError(pa,"no registers to write specified");
+	w->regType = currRegType;
 
 	// add write
 	if (meterWrites) {
@@ -1244,7 +1253,7 @@ int readMeterDefinitions (const char * configFileName) {
 		"grafana"         ,TK_GRAFANA,
 		"gname"           ,TK_GNAME,
 		"meter"           ,TK_METER,
-		"register"        ,TK_REGISTER,
+//		"register"        ,TK_REGISTER,
 		"coil"            ,TK_COIL,
 		"write"           ,TK_WRITE,
 		NULL);
@@ -1265,6 +1274,8 @@ int readMeterDefinitions (const char * configFileName) {
 		else if (strcasecmp(pa->strVal,"Schedule") == 0)
 			tk = parseCron(pa);
 		else if (strcasecmp(pa->strVal,"Writes") == 0)
+			tk = parseWrites(pa);
+		else if (strcasecmp(pa->strVal,"Write") == 0)
 			tk = parseWrites(pa);
 		else
 			parserError(pa,"unknown section type %s",pa->strVal);

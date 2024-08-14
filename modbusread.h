@@ -17,8 +17,8 @@ int meterSerialScanBaudrate (char * baudString);
 int meterSerialScanParity (char * parityString);
 int meterSerialScanrs485 (char * rs485String);
 int meterSerialScanStopbits (char * stopString);
-int meterSerialOpen ();
-void meterSerialClose ();
+int meterSerialOpenAll ();
+void meterSerialCloseAll ();
 int meterSerialGetNumDevices();
 
 modbus_t ** modbusRTU_getmh(int serialPortNum);
@@ -61,7 +61,7 @@ void setTarif (int verboseMsg);
 
 void modbusread_free();
 
-void execMeterWrite(meterWrites_t *mw);
+void execMeterWrite(meterWrites_t *mw, int dryrun);
 
 #endif // MODBUSREAD_H_INCLUDED
 

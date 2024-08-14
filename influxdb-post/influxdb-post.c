@@ -748,7 +748,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 				//curl_slist_free_all(c->ch);  // sigsegv sometimes with curl 8.4.0 ??
 				//EPRINTFN("curl_slist_free_all: done");
 				curl_easy_cleanup(c->ch);
-				EPRINTFN("curl_easy_cleanup: done");
+				VPRINTFN(4,"curl_easy_cleanup: done");
 				c->ch = NULL;	// reconnect next time
 				EPRINTFN("curl_ws_send to \"%s\" closed connection",c->url);
 				free(c->url); c->url = NULL;

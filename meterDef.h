@@ -87,9 +87,9 @@
 #define TK_HOLDING         629
 #define TK_GNAME           630
 #define TK_METER           631
-#define TK_REGISTER        632
-#define TK_COIL            633
-#define TK_WRITE           634
+//#define TK_REGISTER        632
+#define TK_COIL            632
+#define TK_WRITE           633
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -203,13 +203,12 @@ struct meterRegisterRead_t {
 	int sunspecId;
 	int sunspecOffset;
 	double fvalueInflux;
-	double fvalue;       // now always float, will be saved as int to influx/mqtt if defined as integer
+	double fvalue;		// now always float, will be saved as int to influx/mqtt if defined as integer
 	double fvalueInfluxLast;
-	//int64_t ivalue;
 	int isInt;
 	int hasBeenRead;
 	int sunspecSfRegister;
-	int sunspecSf;      // sunspec scaling Factor
+	int sunspecSf;		// sunspec scaling Factor
 	meterRegisterRead_t *next;
 };
 
@@ -307,6 +306,7 @@ struct meterWrites_t {
     meter_t * meter;
     meterWrite_t *meterWrite;
     meterWrites_t *next;
+    int hasSchedule;
 };
 
 

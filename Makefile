@@ -379,6 +379,8 @@ endif
 	@echo "cleaned static build dirs"
 
 info:
+	@echo "          ARCH: $(ARCH)"
+	@echo "      HOSTARCH: $(HOSTARCH)"
 	@echo "       TARGETS: $(TARGETS)"
 	@echo "    ALLTARGETS: $(ALLTARGETS)"
 	@echo "       SOURCES: $(SOURCES)"

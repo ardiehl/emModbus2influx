@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.22 Armin Diehl <ad@ardiehl.de> Aug 5,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.24 Armin Diehl <ad@ardiehl.de> Aug 14,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1059,7 +1059,7 @@ int main(int argc, char *argv[]) {
 		if (meterSerialScanParity (serParity)) exit(3);
 		if (meterSerialScanrs485 (ser_rs485)) exit(3);
 		if (meterSerialScanStopbits (serStopbits)) exit (3);
-		if (meterSerialOpen ()) exit(3);
+		if (meterSerialOpenAll ()) exit(3);
 		//if (modbusRTU_open (serDevice,serBaudrate,serParity,serStopbits,ser_rs485) != 0) {
 		//	EPRINTF("%s: unable to open serial port at %s\n",argv[0],serDevice);
 		//	exit(3);
@@ -1284,7 +1284,7 @@ int main(int argc, char *argv[]) {
 		//printf("."); fflush(stdout);
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
 		if (isFirstQuery) rc = 1;
-		else rc = cron_queryMeters(dryrun || verbose>0);
+		else rc = cron_queryMeters(dryrun || verbose>0, dryrun);
 		if (rc > 0) {
 #ifndef DISABLE_FORMULAS
 			formulaNumPolls++;
@@ -1338,8 +1338,10 @@ int main(int argc, char *argv[]) {
 				meter = meters;
 				while(meter) {
 					if(!meter->disabled) {
-						grafanaAppendData (gClient, meter, influxTimestamp);
-						numMeters++;
+						if (meter->meterHasBeenRead) {
+							grafanaAppendData (gClient, meter, influxTimestamp);
+							numMeters++;
+						}
 					}
 					meter = meter->next;
 				}
@@ -1376,6 +1378,7 @@ int main(int argc, char *argv[]) {
 			}
 			if (isFirstQuery) isFirstQuery--;
 		}
+
 	}
 
 	// terminate all worker threads

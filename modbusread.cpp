@@ -44,6 +44,25 @@ meterIPConnection_t * meterIPconnections;
 
 const char * defPort = "502";
 
+void modbusTCP_close (char *device, char *port) {
+	meterIPConnection_t * mc = meterIPconnections;
+
+	if (port == NULL) port = (char *)defPort;
+
+	while (mc) {
+		if (strcmp(device,mc->hostname) == 0)
+			if (strcmp(port,mc->port) == 0) {
+				if (mc->isConnected) {
+					PRINTFN("modbusTCP_close: disconnecting from %s:%s",device,port);
+					mc->isConnected = 0;
+					modbus_close(mc->mb);
+				}
+				return;
+			}
+		mc = mc->next;
+	}
+}
+
 modbus_t ** modbusTCP_open (char *device, char *port) {
 	int res;
 	meterIPConnection_t * mc = meterIPconnections;
@@ -57,14 +76,17 @@ modbus_t ** modbusTCP_open (char *device, char *port) {
 					VPRINTFN(2,"modbusTCP_open (%s:%s): using exiting connection",device,port);
 					return &mc->mb;
 				}
+#if 0
 				if (mc->retryCount) {
 					mc->retryCount--;
 					return NULL;
 				}
+#endif
 				res = modbus_connect(mc->mb);
 				if (res == 0) {
 					mc->isConnected = 1;
 					VPRINTFN(2,"modbusTCP_open (%s:%s): connected",device,port);
+					modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_PROTOCOL));
 					return &mc->mb;
 				}
 				VPRINTFN(2,"modbusTCP_open (%s:%s): connect failed retrying later",device,port);
@@ -94,7 +116,8 @@ modbus_t ** modbusTCP_open (char *device, char *port) {
 	if (res == 0) {
 		VPRINTFN(2,"modbusTCP_open (%s:%s): connected",device,port);
 		mc->isConnected = 1;
-		modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL));
+		//modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL));	// this will stop all if a tcp meter is not available
+		modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_PROTOCOL));	// needed for Fronius Symo
 		return &mc->mb;
 	}
 	VPRINTFN(2,"modbusTCP_open (%s:%s): connect failed retrying later",device,port);
@@ -189,7 +212,7 @@ meterSerialConnection_t * newMeterSerialConnection() {
 }
 
 
-void meterSerialClose () {
+void meterSerialCloseAll () {
 	if (! meterSerialConnections) return;
 
 	meterSerialConnection_t * sc = meterSerialConnections;
@@ -201,7 +224,7 @@ void meterSerialClose () {
 	}
 }
 
-int meterSerialOpen () {
+int meterSerialOpenAll () {
 	int res;
 	int serialPortNum;
 
@@ -257,6 +280,7 @@ int meterSerialOpen () {
 
 
 void modbusRTU_freeAll()  {
+	meterSerialCloseAll();
 	meterSerialConnection_t * mc = meterSerialConnections;
 	meterSerialConnection_t * mcWork;
 	while (mc) {
@@ -641,6 +665,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			free(*buf); *buf = NULL;
 			return -1;
 	}
+	errno = 0;
 	if (regType == regTypeHolding) {
 		res = modbus_read_registers(*meter->mb, startAddr, numRegisters, *buf);  // holding registers
 		strcpy(function,"modbus_read_registers");
@@ -660,7 +685,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 	}
 
     if(res < 0) {
-    	EPRINTFN("%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",function,numRegisters,startAddr,startAddr,errno,modbus_strerror(errno));
+    	VPRINTFN(1,"%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",function,numRegisters,startAddr,startAddr,errno,modbus_strerror(errno));
         free(*buf); *buf = NULL;
 	if ((meter->isSerial) && (errno = EIO)) {
 		EPRINTFN("EIO on serial meter, assuming serial port disconnected, terminating");
@@ -1322,6 +1347,9 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	char format[50];
 	struct timespec timeStart, timeEnd;
 
+	// reset read flags
+	meter->meterHasBeenRead = 0;
+
 	if (meter->disabled) return 0;
 	if (!meter->meterType) {
 		meter->meterHasBeenRead = 1;
@@ -1336,8 +1364,12 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 
 	if (verboseMsg) {
         if (verboseMsg > 1) printf("\n");
-		if (meter->hostname) printf("Query \"%s\" @ TCP %s:%s, Modbus address %d\n",meter->name,meter->hostname,meter->port == NULL ? "502" : meter->port,meter->modbusAddress);
-		else printf("Query \"%s\" @ ModbusRTU address %d on Serial%d\n",meter->name,meter->modbusAddress,meter->serialPortNum);
+		if (meter->isTCP) printf("Query \"%s\" @ TCP %s:%s, Modbus address %d\n",meter->name,meter->hostname,meter->port == NULL ? "502" : meter->port,meter->modbusAddress);
+		else if (meter->isSerial) printf("Query \"%s\" @ ModbusRTU address %d on Serial%d\n",meter->name,meter->modbusAddress,meter->serialPortNum);
+		else {
+			EPRINTFN("%s: internal error: meter is neither serial or TCP",meter->name);
+			exit(255);
+		}
 	} else
 		VPRINTFN(8,"%s: queryMeter Modbus address %d",meter->name,meter->modbusAddress);
 
@@ -1345,7 +1377,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	if (meter->isTCP) {
 		meter->mb = modbusTCP_open (meter->hostname,meter->port);	// get it from the pool or create/open if not already in list of connections
 		if(meter->mb == NULL) {
-			WPRINTFN("%s: connect to %s:%d failed, will retry later",meter->name,meter->hostname,meter->port);
+			WPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",meter->name,meter->hostname,meter->port ? meter->port : defPort,errno,modbus_strerror(errno));
 			meter->numErrs++;
 			return -555;
 		}
@@ -1354,9 +1386,6 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 		modbus_set_debug(*meter->mb,meter->modbusDebug);
 		modbus_set_slave(*meter->mb,meter->modbusAddress);
 	}
-
-	// reset read flags
-	meter->meterHasBeenRead = 0;
 
 	if (meter->meterType->isFormulaOnly) meter->meterHasBeenRead++;
 
@@ -1405,8 +1434,6 @@ int queryMeter(int verboseMsg, meter_t *meter) {
         meter->initDone = 1;
     }
 
-
-
 	// first read the defined sections
 	meterReads = meter->meterType->meterReads;
 	while (meterReads) {
@@ -1452,11 +1479,14 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 				if (blockUsed == 0) printf("  --> Block from %d to %d is useless\n",regStart,regEnd);
 			free(buf); buf = NULL;
 		} else {
-			if (res < -1) {
-				meter->numErrs++;
-				return res;  // for TCP open retry
-			}
-			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d",meter->meterType->name,numRegisters,regStart,res);
+			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d, errno:%d (%s)",meter->meterType->name,numRegisters,regStart,res,errno,modbus_strerror(errno));
+			if (meter->isTCP)
+				modbusTCP_close (meter->hostname,meter->port);
+			//if (res < -1) {
+			meter->numErrs++;
+			return res;  // for TCP open retry
+			//}
+
 		}
 		meterReads = meterReads->next;
 	}
@@ -1487,7 +1517,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     if (getRegisterValue (meterRegisterRead, buf, 0, regStart, regEnd) != 0) {
                         EPRINTF("%s: getRegisterValue for %s failed with %d",meter->name,meterRegisterRead->registerDef->name);
                         meter->numErrs++;
-                        exit(1);
+                        return res;
                     }
                     if (verbose > 3) {
                         PRINTF("%s: received %d regs for %s from %d (0x%02x) to %d (0x%02x) (not covered via block read), data received: ",meter->name,meterRegisterRead->registerDef->numRegisters,meterRegisterRead->registerDef->name,regStart,regStart,regEnd,regEnd);
@@ -1497,7 +1527,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     free(buf); buf = NULL;
                 } else {
                 	meter->numErrs++;
-                	//EPRINTFN("%s (%s): readRegisters (%d,%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regEnd,modbus_strerror(errno));
+                	VPRINTFN(1,"%s (%s): readRegisters (%d,%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regEnd,modbus_strerror(errno));
                     return res;
                 }
             } else
@@ -1748,10 +1778,160 @@ void modbusread_free() {
 }
 
 
-void execMeterWrite(meterWrites_t *mw) {
+// convert float value into modbus registers (1..4) depending on type
+int createModbusRegWriteBuff (uint16_t *dest, int type, double value) {
+
+    int size;   // in words
+    switch (type) {
+		case TK_FLOAT:
+            size = 2;
+            modbus_set_float(value, dest);
+			break;
+		case TK_FLOAT_CDAB:
+			size = 2;
+            modbus_set_float_cdab(value, dest);
+			break;
+		case TK_FLOAT_ABCD:
+			size = 2;
+            modbus_set_float_abcd(value, dest);
+			break;
+		case TK_FLOAT_BADC:
+			size = 2;
+            modbus_set_float_badc(value, dest);
+			break;
+		case TK_INT16: {
+            size = 1;
+            int16_t *v = (int16_t *)dest;
+			*v = value;
+			break;
+        }
+		case TK_INT32: {
+            size = 2;
+            int32_t iv32 = value;
+            dest[0] = iv32 >> 16;
+            dest[1] = iv32 & 0xffff;
+			//rr->fvalue = ((int32_t) buf[bufStartAddr] << 16) | buf[bufStartAddr+1];
+			break;
+        }
+        case TK_INT32L: {
+            size = 2;
+            int32_t iv = value;
+            dest[1] = iv >> 16;
+            dest[0] = iv & 0xffff;
+			//rr->fvalue = ((int32_t) buf[bufStartAddr] << 16) | buf[bufStartAddr+1];
+			break;
+        }
+
+		case TK_INT48: {
+            size = 3;
+            int64_t iv = value;
+            if (value < 0) {
+                iv &= 0xffffffffffff;
+                iv |= 0x800000000000;   // negative bit - untested
+            }
+            dest[0] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[2] = iv & 0xffff;
+			//rr->fvalue = ((int64_t)buf[bufStartAddr] << 32) | ((int64_t)buf[bufStartAddr+1] << 16) | buf[bufStartAddr+2];
+			break;
+        }
+        case TK_INT48L: {
+            size = 3;
+            int64_t iv = value;
+            if (value < 0) {
+                iv &= 0xffffffffffff;
+                iv |= 0x800000000000;   // negative bit - untested
+            }
+            dest[2] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[0] = iv & 0xffff;
+			break;
+        }
+		case TK_INT64: {
+            size = 4;
+            int64_t iv = value;
+            dest[0] = iv >> 48;
+            dest[1] = iv >> 32;
+            dest[2] = iv >> 16;
+            dest[3] = iv & 0xffff;
+			//rr->fvalue = ((int64_t)buf[bufStartAddr] << 48) | ((int64_t)buf[bufStartAddr+1] << 32) | ((int64_t)buf[bufStartAddr+2] << 16) | buf[bufStartAddr+3];
+			break;
+        }
+        case TK_INT64L: {
+            size = 4;
+            int64_t iv = value;
+            dest[3] = iv >> 48;
+            dest[2] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[0] = iv & 0xffff;
+			break;
+        }
+		case TK_UINT16: {
+            size = 1;
+			dest[0] = value;
+			break;
+        }
+		case TK_UINT32: {
+            size = 2;
+            uint32_t iv32 = value;
+            dest[0] = iv32 >> 16;
+            dest[1] = iv32 & 0xffff;
+			break;
+        }
+        case TK_UINT32L: {
+            size = 2;
+            uint32_t iv32 = value;
+            dest[1] = iv32 >> 16;
+            dest[0] = iv32 & 0xffff;
+			break;
+        }
+        case TK_UINT48: {
+            size = 3;
+            uint64_t iv = value;
+            dest[0] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[2] = iv & 0xffff;
+			break;
+        }
+        case TK_UINT48L: {
+            size = 3;
+            uint64_t iv = value;
+            dest[2] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[0] = iv & 0xffff;
+			break;
+        }
+        case TK_UINT64: {
+            size = 4;
+            uint64_t iv = value;
+            dest[0] = iv >> 48;
+            dest[1] = iv >> 32;
+            dest[2] = iv >> 16;
+            dest[3] = iv & 0xffff;
+			break;
+        }
+        case TK_UINT64L: {
+            size = 4;
+            uint64_t iv = value;
+            dest[3] = iv >> 48;
+            dest[2] = iv >> 32;
+            dest[1] = iv >> 16;
+            dest[0] = iv & 0xffff;
+			break;
+        }
+        default:
+			EPRINTFN("fatal internal error: modbusread.c createModbusRegWriteBuff, unhandled type (%d)",type);
+			exit(255);
+    }
+    return size;
+}
+
+
+void execMeterWrite(meterWrites_t *mw, int dryrun) {
 	meterWrite_t *w = mw->meterWrite;
 	double val;
 	int res;
+	uint16_t writeRegisters[4];
 
 	if (!mw->meterWrite) return;
 
@@ -1762,7 +1942,7 @@ void execMeterWrite(meterWrites_t *mw) {
 	}
 
 
-	VPRINTFN(0,"performing writes \"%s\" for %s",mw->name,mw->meter->name);
+	VPRINTFN(1,"performing writes \"%s\" for %s",mw->name,mw->meter->name);
 	while (w) {
 #ifndef DISABLE_FORMULAS
 		if (w->formula) {
@@ -1790,11 +1970,52 @@ void execMeterWrite(meterWrites_t *mw) {
 		modbus_set_response_timeout(*mw->meter->mb, &response_timeout);
 #endif
 
-//int modbus_write_register(modbus_t *ctx, int addr, const uint16_t value);
-//int modbus_write_registers(modbus_t *ctx, int addr, int nb, const uint16_t *src);
-//adad
+        if (w->regType == regTypeHolding) {
+            int numRegisters = createModbusRegWriteBuff (writeRegisters, w->reg->type, val);
+            if (numRegisters < 1 || numRegisters > 4) {
+                EPRINTFN("fatal internal error: modbusread.cpp.execMeterWrite createModbusRegWriteBuff returned invalid number of registers (%d)",numRegisters);
+                exit(255);
+            }
+            char st[30] = "";
+			char *sp = (char *)&st;
+
+			if (dryrun || verbose > 0) {
+				for (int i=0;i<numRegisters;i++) {
+                    sprintf(sp,"%04x ",writeRegisters[i]);
+                    sp+=5;
+                }
+			}
+
+            if (dryrun) {
+				PRINTFN("%s (%s): would write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
+            } else {
+                int rc;
+                char s[2] = "";
+                VPRINTFN(1,"%s (%s): write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
+                // TODO: check if value is already there
+                if (numRegisters == 1) {
+                    rc = modbus_write_register(*mw->meter->mb, w->reg->startAddr, writeRegisters[0]);  // function 0x06
+                } else {
+					strcpy(s,"s");
+                    rc = modbus_write_registers(*mw->meter->mb, w->reg->startAddr, numRegisters, writeRegisters);   // function 0x10
+                }
+
+                if (rc != numRegisters)
+                    EPRINTFN("%s: execMeterWrite (%s): modbus_write_register%s returned %d, expected %d, errno: %d (%s)",mw->meter->name,mw->name,s,rc,numRegisters,errno,modbus_strerror(errno));
+            }
+        } else
+        if (w->regType == regTypeCoil) {
+			// TODO: coils not yet supported by read
+			if (dryrun) {
+				PRINTFN("%s (%s): would write coil at address %d with value %s",mw->meter->name,mw->name,w->reg->startAddr,val > 0 ? "true" : "false");
+			} else {
+				int rc = modbus_write_bit(*mw->meter->mb, w->reg->startAddr, val > 0 ? TRUE : FALSE);
+				if (rc != 1)
+                    EPRINTFN("%s: execMeterWrite (%s): modbus_write_bit returned %d, expected 1, errno: %d (%s)",mw->meter->name,mw->name,rc,errno,modbus_strerror(errno));
+			}
+        } else
+            EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
 
 		w = w->next;
 	}
-//	adad
 }

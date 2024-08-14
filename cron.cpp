@@ -118,7 +118,7 @@ int cron_write_add(char *cronName, meterWrites_t * mw) {
 	cronDef_t * cronDef = cronTab;
 	cronDef_t * cd = NULL;
 
-	//printf("cron_meter_add_byName (%s,%s)\n",cronName,meter->name);
+	//printf("cron_write_add (%s,%s)\n",cronName,mw->name);
 
 	while (cronDef && (cd == NULL)) {
 		if (cronDef->name == cronName) cd = cronDef;	// for default name==NULL
@@ -128,14 +128,17 @@ int cron_write_add(char *cronName, meterWrites_t * mw) {
 					if (strcmp(cronName,cronDef->name) == 0) cd = cronDef;
 		cronDef = cronDef->next;
 	}
+
 	if (cd) {
-		if (!cronDef->memberWrites) {
-			cronDef->memberWrites = mw;
+		if (!cd->memberWrites) {
+			cd->memberWrites = mw;
+			if (cd->name) mw->hasSchedule++;	// not for default schedule
 			return 0;
 		}
-		meterWrites_t * mW = cronDef->memberWrites;
+		meterWrites_t * mW = cd->memberWrites;
 		while (mW->next) mW = mW->next;
 		mW->next = mw;
+		if (cd->name) mw->hasSchedule++;	// not for default schedule
 		return 0;
 	}
 	//EPRINTFN("cron name \"%s\" not defined",cronName);
@@ -355,7 +358,7 @@ void workerTerminate() {
 
 
 
-int cron_queryMeters(int verboseMsg) {
+int cron_queryMeters(int verboseMsg, int dryrun) {
 	meter_t * meter = meters;
 	meterWrites_t * mw = meterWrites;
 	cronMemberMeter_t * cm;
@@ -500,7 +503,10 @@ int cron_queryMeters(int verboseMsg) {
 	meter = meters;
 	while (meter) {
 		if (! meter->disabled)
-			if (meter->meterHasBeenRead || meter->isFormulaOnly) executeMeterFormulas(meter);
+			if (meter->meterHasBeenRead || meter->isFormulaOnly) {
+				executeMeterFormulas(meter);
+				if (meter->isFormulaOnly) numMeters++;
+			}
 		meter = meter->next;
 	}
 #endif
@@ -521,7 +527,7 @@ int cron_queryMeters(int verboseMsg) {
 	cd = cronTab;
 	mw = cd->memberWrites;
 	while (mw) {
-		if (mw->isDue) execMeterWrite(mw);
+		if (mw->isDue) execMeterWrite(mw, dryrun);
 		mw = mw->next;
 	}
 
@@ -564,6 +570,7 @@ void cron_showSchedules() {
 
 // set the default schedule for all meters where no schedule(s) are specified
 void cron_setDefault() {
+	// meters
 	meter_t * meter = meters;
 	time_t currTime = getCurrTime();
 
@@ -571,6 +578,20 @@ void cron_setDefault() {
 		if (! meter->hasSchedule) cron_meter_add_byName(NULL,meter);
 		meter = meter->next;
 	}
+
+	// meter writes
+	meterWrites_t * mw = meterWrites;
+	while (mw) {
+		printf("meter write %s\n",mw->name);
+		mw = mw->next;
+	}
+	mw = meterWrites;
+	while (mw) {
+		if (!mw->hasSchedule)
+			cron_write_add(NULL,mw);
+		mw = mw->next;
+	}
+
 	// set next query time
 	cronDef_t * cd = cronTab;
 	while (cd) {
