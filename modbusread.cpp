@@ -85,11 +85,11 @@ modbus_t ** modbusTCP_open (char *device, char *port) {
 				res = modbus_connect(mc->mb);
 				if (res == 0) {
 					mc->isConnected = 1;
-					VPRINTFN(2,"modbusTCP_open (%s:%s): connected",device,port);
+					PRINTFN("modbusTCP_open (%s:%s): connected",device,port);
 					modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_PROTOCOL));
 					return &mc->mb;
 				}
-				VPRINTFN(2,"modbusTCP_open (%s:%s): connect failed retrying later",device,port);
+				PRINTFN("modbusTCP_open (%s:%s): connect failed retrying later",device,port);
 				mc->retryCount = TCP_OPEN_RETRY_DELAY;
 				return NULL;
 			}

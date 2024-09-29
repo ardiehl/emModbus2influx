@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.24 Armin Diehl <ad@ardiehl.de> Aug 14,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.25 Armin Diehl <ad@ardiehl.de> Sep 29,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -658,7 +658,8 @@ int mqttSendData (meter_t * meter,int dryrun) {
         if (doWrite) {
             mClient->topicPrefix = meter->mqttprefix;
             rc = mqtt_pub_strF (mClient,meter->name, 0, meter->mqttQOS,meter->mqttRetain, buf);
-            if (rc != MQTTCLIENT_SUCCESS && rc != MQTT_RECONNECTED) LOGN(0,"mqtt publish failed with rc: %d (connected=%d)",rc,MQTTClient_isConnected(mClient->client));
+            // message not needeed, we already has the disconnect message
+            //if (rc != MQTTCLIENT_SUCCESS && rc != MQTT_RECONNECTED) LOGN(0,"mqtt publish failed with rc: %d (connected=%d)",rc,MQTTClient_isConnected(mClient->client));
             mClient->topicPrefix = NULL;
         }
 	}
