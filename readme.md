@@ -353,7 +353,7 @@ For standard mobus slaves, the register addresses are fixed, however, this is no
 emModbus2Influx will resolve the block relative register addresses to absolute addresses at the first query. Therefore if you install a firmware update of aSunSpec device, it may me necessary to restart emModbus2Influx in case some block lengths have been changed by the manufacturer.
 
 # Schedule definitions
-Defines schedule times for querying meters. There is always a default schedule defines by poll= or by cron=. A meter can be part of one or more schedules with schedule="scheduleName"[,..].
+Defines schedule times for querying meters. There is always a default schedule defined by poll= or by cron=. A meter can be part of one or more schedules with schedule="scheduleName"[,..].
 The implementation is based on https://github.com/staticlibs/ccronexpr and is like cron with the addition of the first paramater (seconds).
 Some examples for expressions:
 ```
@@ -416,7 +416,7 @@ Optional, default=holding. Specifies for all following read= or registers what t
 
 ```read=start,numRegs```
 Optional: non SunSpec, specifies to read numReg (16 bit) registers starting at 'start'. After each read= statement, emModbus2Influx will try to map the reading data to the required registers. This is to avoid unnecessary reads especially for TCP.
-If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slowdown the overall read process.
+If read= is not specified, a single read request for each register will be performed. This may, and for TCP it will, slow down the overall read process.
 In case there are remaining registers not mapped, single read commands for these registers will be performed.
 There is no limit in the number of read= specified in the config file. To make sure all registers are covered by read= stements, start emModbus2influx with dryrun and verbosity level 1:
 ```
@@ -481,7 +481,7 @@ for each register,
  has to be specified.
 Registers of this MeterType can be referenced within formulas by using its name, the following sample calculates the maximum of each phase voltage and saves the result in the new register uMax:
 ```
-"uMax"="max(u1,u2,3)"
+"uMax"="max(u1,u2,u3)"
 ```
  Additional, optional parameters may be specified (separated by comma). If no data type is specified, int16 will be assumed. A name must be specified with quotes to be able to use reserved words like "name". Example:
  ```
@@ -547,7 +547,7 @@ The result of the formula will be the new value. The current value as well as th
 ```iavg```
 When using influxwritemult= , these options specify if the maximun, minimum or the average value will be written to influxdb.
 ### Virtual MeterTypes
-Virtual meter types are types with formula fields only. These types are useful for testing when no physical modbus devices are available and you want to test writing to Influx/MQTT or Grafana. A global variable _xxx reflecting the current query number as well as a random function is available.
+Virtual meter types are types with formula fields only. These types are useful for testing when no physical modbus devices are available and you want to test writing to Influx/MQTT or Grafana. A global variable _polls reflecting the current query number as well as a random function is available.
 Example:
 ```
 # test for posting to local servers using virtual meter(s)
