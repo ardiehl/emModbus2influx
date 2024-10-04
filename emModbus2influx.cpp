@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.25 Armin Diehl <ad@ardiehl.de> Sep 29,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.26 Armin Diehl <ad@ardiehl.de> Okt 4,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -849,10 +849,10 @@ int grafanaAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 	while (rr) {
         if (rr->registerDef->enableGrafanaWrite) {
             if (rr->isInt || rr->registerDef->forceType == force_int) {
-                rc = influxdb_format_line(c, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalueInflux), INFLUX_END);
+                rc = influxdb_format_line(c, INFLUX_F_INT(rr->registerDef->name, (int)rr->fvalue), INFLUX_END);
                 if (rc< 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_INT"); exit(1); }
             } else {
-                rc = influxdb_format_line(c, INFLUX_F_FLT(rr->registerDef->name, rr->fvalueInflux, rr->registerDef->decimals), INFLUX_END);
+                rc = influxdb_format_line(c, INFLUX_F_FLT(rr->registerDef->name, rr->fvalue, rr->registerDef->decimals), INFLUX_END);
                 if (rc < 0) { EPRINTFN("influxdb_format_line failed, INFLUX_F_FLT"); exit(1); }
             }
         } //else printf("%s %s: disabled for Grafana\n",meter->name,rr->registerDef->name);
