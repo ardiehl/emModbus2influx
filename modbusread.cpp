@@ -1367,8 +1367,10 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 		if (meter->isTCP) printf("Query \"%s\" @ TCP %s:%s, Modbus address %d\n",meter->name,meter->hostname,meter->port == NULL ? "502" : meter->port,meter->modbusAddress);
 		else if (meter->isSerial) printf("Query \"%s\" @ ModbusRTU address %d on Serial%d\n",meter->name,meter->modbusAddress,meter->serialPortNum);
 		else {
-			EPRINTFN("%s: internal error: meter is neither serial or TCP",meter->name);
-			exit(255);
+			if (!meter->isFormulaOnly) {
+				EPRINTFN("%s: internal error: meter is neither serial, TCP or formula only",meter->name);
+				exit(255);
+			}
 		}
 	} else
 		VPRINTFN(8,"%s: queryMeter Modbus address %d",meter->name,meter->modbusAddress);

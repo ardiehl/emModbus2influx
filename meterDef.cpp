@@ -614,8 +614,6 @@ int parseMeterType (parser_t * pa) {
 	if (!meterType->name) parserError(pa,"meter type definition without name");
 	if (!meterType->meterRegisters) parserError(pa,"\"%s\": meter type definition without registers",meterType->name);
 
-	if (!meterType->meterReads) fprintf(stderr,"\"%s\": Warning: no meter reads, form a performance point of view, meter reads should be defined to avoid single register reads\n",meterType->name);
-
 	meterType->isFormulaOnly = 1;
 	meterType->numEnabledRegisters_influx = 0;
 	meterType->numEnabledRegisters_mqtt = 0;
@@ -628,6 +626,9 @@ int parseMeterType (parser_t * pa) {
 			meterType->numEnabledRegisters_grafana += meterRegister->enableGrafanaWrite;
 			meterRegister = meterRegister->next;
 	}
+
+	if (!meterType->isFormulaOnly)
+		if (!meterType->meterReads) fprintf(stderr,"\"%s\": Warning: no meter reads, form a performance point of view, meter reads should be defined to avoid single register reads\n",meterType->name);
 
 	// store meter type
 	if (meterTypes) {
@@ -913,6 +914,7 @@ int parseMeter (parser_t * pa) {
 	}
 
 	if (meter->meterType) {
+		meter->isFormulaOnly = meter->meterType->isFormulaOnly;
 		if (meter->mqttprefix == NULL)
 			if (meter->meterType->mqttprefix) meter->mqttprefix = strdup(meter->meterType->mqttprefix);
 		//if ((! meter->meterType->meterReads) || (meter->disabled)) {
@@ -920,9 +922,13 @@ int parseMeter (parser_t * pa) {
 			meter->isTCP = 0;
 			meter->isSerial = 0;
 		} else {
-			if (!meter->isTCP) meter->isSerial=1;
+			//printf("Meter %s: %d %d\n",meter->name,meter->isTCP,meter->meterType->isFormulaOnly);
+			if (!meter->isTCP && !meter->isFormulaOnly) meter->isSerial=1;
 		}
+	} else {
+		meter->isFormulaOnly = 1;
 	}
+
 	if (meter->mqttprefix == NULL)
 		if (mqttprefix) meter->mqttprefix = strdup(mqttprefix);
 
@@ -970,11 +976,6 @@ int parseMeter (parser_t * pa) {
 		}
 	}
 	if (meter->influxWriteMult) meter->influxWriteCountdown = -1; // meter->influxWriteMult;
-
-	if (meter->meterType)
-		meter->isFormulaOnly = meter->meterType->isFormulaOnly;
-	else
-		meter->isFormulaOnly = 1;
 
 	return tk;
 }

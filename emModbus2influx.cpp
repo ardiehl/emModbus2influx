@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.26 Armin Diehl <ad@ardiehl.de> Okt 4,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.28 Armin Diehl <ad@ardiehl.de> Nov 17,2024 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -303,6 +303,7 @@ int parseArgs (int argc, char **argv) {
 	char * bucket = NULL;
 	char * org = NULL;
 	char * token = NULL;
+	char * influxApiStr = NULL;
 	int syslog = 0;
 	int port = 8086;
 	int numQueueEntries = NUM_RECS_TO_BUFFER_ON_FAILURE;
@@ -337,6 +338,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_STRVAL       (0,'T',"token"          ,&token                ,"Influxdb v2 auth api token")
 		AP_OPT_INTVAL       (0, 0 ,"influxwritemult",&influxWriteMult      ,"Influx write multiplicator")
 		AP_OPT_INTVAL       (1,0  ,"isslverifypeer" ,&iVerifyPeer          ,"Influx SSL certificate verification (0=off)")
+		AP_OPT_STRVAL       (0,'A',"influxapi"      ,&influxApiStr         ,"Influxdb api string, if specified db..token will not be used")
 		AP_OPT_INTVAL       (1,'c',"cache"          ,&numQueueEntries      ,"#entries for influxdb cache")
 #ifndef DISABLE_MQTT
 		AP_OPT_STRVAL       (1,'M',"mqttserver"     ,&mClient->hostname    ,"mqtt server name or ip")
@@ -411,17 +413,19 @@ int parseArgs (int argc, char **argv) {
 	//mClient->topicPrefix = mqttprefix;
 
 	if (doTry==0 && serverName != NULL) {
-		if (org || token || bucket) influxapi++;
-		//if (serverName == NULL) { EPRINTF("influx server name not specified\n"); exit(1); }
-		if (influxapi == 1) {
-			if (!dbName) { EPRINTF("influxdb database name not specified\n"); exit(1); }
-		} else {
-			if (!org) { EPRINTF("influxdb org not specified\n"); exit(1); }
-			if (!bucket) { EPRINTF("influxdb bucket not specified\n"); exit(1); }
-			if (!token) { EPRINTF("influxdb token not specified\n"); exit(1); }
-			if (dbName) EPRINTF("Warning: database name ignored for influxdb v2 api\n");
-			if (userName) EPRINTF("Warning: user name ignored for influxdb v2 api\n");
-			if (password) EPRINTF("Warning: password ignored for influxdb v2 api\n");
+		if (!influxApiStr) {
+			if (org || token || bucket) influxapi++;
+			//if (serverName == NULL) { EPRINTF("influx server name not specified\n"); exit(1); }
+			if (influxapi == 1) {
+				if (!dbName) { EPRINTF("influxdb database name not specified\n"); exit(1); }
+			} else {
+				if (!org) { EPRINTF("influxdb org not specified\n"); exit(1); }
+				if (!bucket) { EPRINTF("influxdb bucket not specified\n"); exit(1); }
+				if (!token) { EPRINTF("influxdb token not specified\n"); exit(1); }
+				if (dbName) EPRINTF("Warning: database name ignored for influxdb v2 api\n");
+				if (userName) EPRINTF("Warning: user name ignored for influxdb v2 api\n");
+				if (password) EPRINTF("Warning: password ignored for influxdb v2 api\n");
+			}
 		}
 	}
 #ifndef DISABLE_MQTT
@@ -437,7 +441,7 @@ int parseArgs (int argc, char **argv) {
 	if (doTry == 0) {
 		if (serverName) {
 			LOG(1,"Influx init: serverName: %s, port %d, dbName: %s, userName: %s, password: %s, org: %s, bucket:%s, numQueueEntries %d\n",serverName, port, dbName, userName, password, org, bucket, numQueueEntries);
-			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries, iVerifyPeer);
+			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries, influxApiStr, iVerifyPeer);
 		}
 	}
 
@@ -448,6 +452,7 @@ int parseArgs (int argc, char **argv) {
 	free(bucket);
 	free(org);
 	free(token);
+	free(influxApiStr);
 
 	argParse_free (a);
 
@@ -1322,7 +1327,7 @@ int main(int argc, char *argv[]) {
 					if (iClient->influxBufLen) {
 						rc = influxdb_post_http_line(iClient);
 						if (rc != 0) {
-							EPRINTFN("Error: influxdb_post_http_line failed with rc %d",rc);
+							//EPRINTFN("Error: influxdb_post_http_line failed with rc %d",rc);
 						} else {
 							VPRINTFN(1,"%d lines posted to influxdb",numMeters);
 						}
