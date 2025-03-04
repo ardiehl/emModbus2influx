@@ -1,3 +1,4 @@
+
 # emModbus2influx
 ## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT and/or Grafana Live. Other time series databases, e.g. questdb are supported as well.
 
@@ -357,7 +358,7 @@ For standard mobus slaves, the register addresses are fixed, however, this is no
 emModbus2Influx will resolve the block relative register addresses to absolute addresses at the first query. Therefore if you install a firmware update of aSunSpec device, it may me necessary to restart emModbus2Influx in case some block lengths have been changed by the manufacturer.
 
 # Schedule definitions
-Defines schedule times for querying meters. There is always a default schedule defined by poll= or by cron=. A meter can be part of one or more schedules with schedule="scheduleName"[,..].
+Defines schedule times for querying meters. There is always a default schedule defined by poll= or by cron=. A meter or a write can be part of one or more schedules with schedule="scheduleName"[,..].
 The implementation is based on https://github.com/staticlibs/ccronexpr and is like cron with the addition of the first paramater (seconds).
 Some examples for expressions:
 ```
@@ -669,7 +670,27 @@ name="virtual"
 disabled=0
 "u1_avg"="(Grid.u1+Grid.u2+Grid.u3)/3",dec=2,influx=1,mqtt=1
 ```
-Options supported are dec=, influx=, mqtt=, arr=, imax, imin and iavg
+# Meter writes
+Writing to modbus registers or coils can be scheduled or performed on each query. A write definition can perform multiple register / coil writes for one modbus device. The write definition can have a formula as a condition that will skip all registers in the definition. In addition, each register write definition can have a condition as well. Target for writes can be a meter formula as well.
+
+```[WriterWrite]```
+where the [ has to be the first character of a line. Options that can be specified for write are:
+```name="NameOfWrite"```
+Mandatory, name of the write definition, used in debug / verbose outputs only.
+```disabled="0|1"```
+1 disables the write definitions.
+```cond="formula"```
+Overall condition formula for thiese writes. If result is <= 0, none of the write definitions within this [MeterWrites] will be performed.
+```schedule="```
+Include in defined schedule
+```meter="NameOfMeter"```
+Mandatory, name of the defined meter (modbus device) to write to.
+```write="RegName",intVal[,cond="formula"[,return]]```
+```write="RegName",floatVal[,cond="formula"[,return]]```
+```write="RegName","formula"[,cond="formula"[,return]]```
+Unlimited number of write statements. RegName needs to be defined in the meter definition (via the meter type) and specifies the modbus register(s) and types. The value to write can be an integer, a float or a bit (>0 equals true) for a coil. An optional condition can be appended to avoid that sigle wite (>0 will perform the write).
+If return is given, no further write statements will be executed in case the write has been performed.
+
 # Getting started
 ## Test connectivity to InfluxDB and/or MQTT
 First, check your connections to your mqtt and/or influxDB server. This can be done without a physical connection to a modbus device. We simply define a virtual device that generates random values using formulas.

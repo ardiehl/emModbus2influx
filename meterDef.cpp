@@ -1184,6 +1184,10 @@ int parseWrites (parser_t * pa) {
 							parserExpectEqual(pa,TK_STRVAL);
 							w->conditionFormula = strdup(pa->strVal);
 							break;
+						case TK_RETURN:
+							tk = parserGetToken(pa);
+							w->returnOnWrite = 1;
+							break;
 						default:
 							parserError(pa,"unexpected parameter for write");
 					}
@@ -1305,6 +1309,7 @@ int readMeterDefinitions (const char * configFileName) {
 		"readwrite"       ,TK_READWRITE,
 		"cond"            ,TK_COND,
 		"condition"       ,TK_COND,
+		"return"          ,TK_RETURN,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {

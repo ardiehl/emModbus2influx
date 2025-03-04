@@ -2184,6 +2184,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 				}
 			} else
 				EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
+			if (w->returnOnWrite) return;
 		} else {
 			VPRINTFN(3,"  write condition for %s.%s.%s (%s) not met, skipping meter write",mw->meter->name,mw->name,w->reg->name,mw->conditionFormula);
 

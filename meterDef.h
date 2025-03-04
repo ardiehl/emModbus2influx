@@ -93,6 +93,7 @@
 #define TK_MQTTFMT 	       635
 #define TK_READWRITE       636
 #define TK_COND            637
+#define TK_RETURN          638
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -301,6 +302,7 @@ struct meterWrite_t {
     char * formula;
     meterWrite_t *next;
     char *conditionFormula;
+    int returnOnWrite;
 };
 
 
