@@ -1191,6 +1191,7 @@ int parseWrites (parser_t * pa) {
 						default:
 							parserError(pa,"unexpected parameter for write");
 					}
+					tk = parserGetToken(pa);
 				}
 
 				meterWrite_t *wtemp = mw->meterWrite;
