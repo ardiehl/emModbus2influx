@@ -7,6 +7,7 @@
 #include "assert.h"
 #include "global.h"
 #include <unistd.h>
+#include <errno.h>
 
 int disableThreadedQuery;
 
@@ -213,6 +214,38 @@ int terminateWorker;
 
 int lockTimeoutSecs = 60;	// seconds
 
+
+#define timeoutMS 100
+
+
+int LockMutex(pthread_mutex_t *m, int timeoutMs) {
+	struct timespec timeoutTime;
+	clock_gettime(CLOCK_REALTIME, &timeoutTime);
+	timeoutTime.tv_nsec += (timeoutMs * 1000000);
+	// avoid rc=22 (Invalid argument)
+	while (timeoutTime.tv_nsec > 1000000000) {
+		timeoutTime.tv_nsec -= 1000000000;
+		timeoutTime.tv_sec++;
+	}
+
+	return pthread_mutex_timedlock(m, &timeoutTime);
+}
+
+
+
+int LockMutex(pthread_mutex_t *m,void (*periodicProc)() = NULL) {
+	int timeMsRemaining = lockTimeoutSecs*1000;
+	int res;
+
+	do {
+		res = LockMutex(m,timeoutMS);
+		if (periodicProc) periodicProc();
+		timeMsRemaining -= timeoutMS;
+	} while ((res == ETIMEDOUT) && (timeMsRemaining > 0));
+	return res;
+}
+
+/*
 int LockMutex(pthread_mutex_t *m) {
 	if (lockTimeoutSecs <=0) return pthread_mutex_lock(m);
 
@@ -222,6 +255,7 @@ int LockMutex(pthread_mutex_t *m) {
 
 	return pthread_mutex_timedlock(m, &timeoutTime);
 }
+*/
 
 
 void *workerThread(void *ptr) {
@@ -328,19 +362,21 @@ int workerRun() {
 }
 
 // wait for all worker threads to finish work
-void workerWait() {
+void workerWait(void (*periodicProc)()) {
 	int i = 0;
 	int rc;
 
 	if (!workerData) return;
 
 	while (workerData[i]) {
-		if ((rc = LockMutex(&workerData[i]->workAvailableMutex)) != 0) {		// blocks while thread is running
-			EPRINTFN("workerWait - %d: Unable lock workAvailableMutex, LockMutex rc=%d (%s)",i,rc,strerror(rc));
+		// workerWait - 0: Unable to lock workAvailableMutex, LockMutex rc=22 (Invalid argument)
+		rc = LockMutex(&workerData[i]->workAvailableMutex,periodicProc);
+		if (rc != 0) {		// blocks while thread is running
+			EPRINTFN("workerWait - %d: Unable to lock workAvailableMutex, LockMutex rc=%d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		if ((rc = pthread_mutex_unlock(&workerData[i]->workAvailableMutex)) != 0) {
-			EPRINTFN("workerWait - %d: Unable unlock workAvailableMutex, pthread_mutex_unlock rc=%d (%s)",i,rc,strerror(rc));
+			EPRINTFN("workerWait - %d: Unable to unlock workAvailableMutex, pthread_mutex_unlock rc=%d (%s)",i,rc,strerror(rc));
 			exit(1);
 		}
 		i++;
@@ -352,13 +388,13 @@ void workerTerminate() {
 	terminateWorker++;
 	workerRun();
 	usleep(100000);
-	workerWait();
+	workerWait(NULL);
 	usleep(100000);
 }
 
 
 
-int cron_queryMeters(int verboseMsg, int dryrun) {
+int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)()) {
 	meter_t * meter = meters;
 	meterWrites_t * mw = meterWrites;
 	cronMemberMeter_t * cm;
@@ -433,10 +469,11 @@ int cron_queryMeters(int verboseMsg, int dryrun) {
 					numMeters++;
 					meter->meterHasBeenRead++;
 #ifndef DISABLE_FORMULAS
-				executeMeterTypeFormulas(verbose>2,meter);
+					executeMeterTypeFormulas(verbose>2,meter);
 #endif
 				} else {
 					res = queryMeter(verbose > 0, meter);
+					if (periodicProc) periodicProc();
 					if (res == 0) {
 						numMeters++;
 						if ((meter->queryTimeNano > 0) && (verboseMsg)) {
@@ -451,7 +488,7 @@ int cron_queryMeters(int verboseMsg, int dryrun) {
 	} else {
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
 		// multi thread query
-		if (workerRun()) usleep(100000);	// start a thread for each serial port and give them some time, TCP is much faster
+		if (workerRun()) usleep(50000);	// start a thread for each serial port and give them some time, TCP is much faster
 
 		// query all TCP meters
 		meter = meters;
@@ -466,6 +503,8 @@ int cron_queryMeters(int verboseMsg, int dryrun) {
 			if (meter->isDue && meter->isTCP) {
 				VPRINTFN(4,"TCP: query %s",meter->name);
 				res = queryMeter(verbose > 0, meter);
+
+				if (periodicProc) periodicProc();
 				if (res == 0) {
 					numMeters++;
 					if ((meter->queryTimeNano > 0) && verboseMsg) {
@@ -481,7 +520,7 @@ int cron_queryMeters(int verboseMsg, int dryrun) {
 			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
 			VPRINTFN(1,"TCP query took %06.4f seconds",queryTime);
 		}
-		workerWait();	// wait for serial meters queried
+		workerWait(periodicProc);	// wait for serial meters queried
 		if (verboseMsg) {
 			i = 0;
 			while (workerData[i]) {

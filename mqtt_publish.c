@@ -113,7 +113,8 @@ int mqtt_pub (mqtt_pubT *m, char *topicIn, char *str, int timeoutMs, int qos, in
 	pubmsg.retained = retained;
 	rc = MQTTClient_publishMessage(m->client, topic, &pubmsg, &m->last_token);
 	if (rc == MQTTCLIENT_DISCONNECTED) {		// try to reconnect
-		if (!isDisconnected) EPRINTFN("MQTTClient_publishMessage returned MQTTCLIENT_DISCONNECTED, trying to reconnect");
+		if (!isDisconnected)
+			EPRINTFN("MQTTClient_publishMessage returned MQTTCLIENT_DISCONNECTED, trying to reconnect");
 		isDisconnected = 1;
 		rc = mqtt_pub_connect(m);
 		if (rc != MQTTCLIENT_SUCCESS) {

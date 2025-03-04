@@ -85,11 +85,14 @@
 #define TK_INAME           627
 #define TK_INPUT           628
 #define TK_HOLDING         629
-#define TK_GNAME           630
-#define TK_METER           631
-//#define TK_REGISTER        632
-#define TK_COIL            632
-#define TK_WRITE           633
+#define TK_COIL            630
+#define TK_INPUTSTATUS     631
+#define TK_GNAME           632
+#define TK_METER           633
+#define TK_WRITE           634
+#define TK_MQTTFMT 	       635
+#define TK_READWRITE       636
+#define TK_COND            637
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -117,8 +120,8 @@ struct sunspecIds_t {
 	sunspecId_t * ids;
 };
 
-typedef enum  {regTypeHolding = 0, regTypeInput, regTypeRegister, regTypeCoil} regType_t;
-
+typedef enum  {regTypeHolding = 0, regTypeInput, regTypeRegister, regTypeCoil, regTypeInputStatus} regType_t;
+typedef enum  {mqttFormatStd = 0, mqttFormatLogoArr, mqttFormatLast} mqttFormat_t;
 #define regTypeSunspec regTypeHolding
 
 typedef struct meterRead_t meterRead_t;
@@ -150,10 +153,10 @@ struct meterRegister_t {
 	char *name;
 	int isFormulaOnly;  // 1 when no modbus read will be performed
 	char *formula;      // either for modifying a value read via modbus or for calculating a "virtual" register based on values of other registers
-	regType_t regType;		// Holding or Input register
+	regType_t regType;		// Holding, Input register, Coil, ...
 	int startAddr;
 	int numRegisters;
-	int type;
+	int type;				// e.g. TK_INT16
 	int divider;
 	int multiplier;
 	meterRegister_t *next;
@@ -186,6 +189,7 @@ struct meterType_t {
 	int mqttQOS;
 	int mqttRetain;
 	int mqttDelayMs;
+	mqttFormat_t mqttFormat;
 	meterType_t *next;
 	char *mqttprefix;
 	char * influxMeasurement;
@@ -234,6 +238,7 @@ struct meterFormula_t {
 typedef struct meter_t meter_t;
 struct meter_t {
     int disabled;
+	int writeDisabled;
 	meterRegisterRead_t *registerRead;
 	meterType_t *meterType;
 	int isFormulaOnly;
@@ -262,6 +267,7 @@ struct meter_t {
 	int numEnabledRegisters_grafana;
 	int mqttQOS;
 	int mqttRetain;
+	mqttFormat_t mqttFormat;
 	int mqttDelayMs;
 	char *mqttLastSend;
 	char *mqttprefix;
@@ -294,7 +300,7 @@ struct meterWrite_t {
     double value;
     char * formula;
     meterWrite_t *next;
-    regType_t regType;
+    char *conditionFormula;
 };
 
 
@@ -307,6 +313,7 @@ struct meterWrites_t {
     meterWrite_t *meterWrite;
     meterWrites_t *next;
     int hasSchedule;
+    char *conditionFormula;
 };
 
 

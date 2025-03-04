@@ -1,5 +1,5 @@
 # emModbus2influx
-## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT and/or Grafana Live
+## read modbus RTU/TCP slaves and write to infuxdb (V1 or V2) and/or MQTT and/or Grafana Live. Other time series databases, e.g. questdb are supported as well.
 
 ### Definitions
 - **MeterType** - a definition of the registers,  register types and more of a specific type of modbus slave
@@ -152,6 +152,7 @@ Long command line options requires to be prefixed with -- while as in the config
   -l, --mqttdelay=        delay milliseconds after mqtt publish (0)
   -r, --mqttretain=       default mqtt retain, can be changed for meter (1)
   -i, --mqttclientid=     mqtt client id (emModbus2influx)
+  --mqttformat=           json format, 0=std,1=Logo array (0)
   --ghost=                grafana server url w/o port, e.g. ws://localost or https://localhost
   --gport=                grafana port (3000)
   --gtoken=               authorisation api token for Grafana
@@ -289,6 +290,7 @@ mqttport=1883
 mqttqos=0
 mqttretain=0
 mqttclientid=emModbus2influx
+mqttformat=0
 ```
 
 Parameters for MQTT. If mqttserver is not specified, MQTT will be disabled at all (if you would like to use InfluxDB only).
@@ -311,6 +313,8 @@ If mqttretain is set to 1, mqtt data will only send if data has been changed sin
 __mqttclientid__:
 defaults to emModbus2influx, needs to be changed if multiple instances of emModbus2influx are accessing the same mqtt server
 
+__mqttformat__:
+defaults to 0 (standard). 1 will be a format compatible with the Siemens Logo Array format
 
 ### additional options
 ```
@@ -412,7 +416,7 @@ where the [ has to be the first character of a line. Options that can be specifi
 Mandatory, name of the MeterType. The name is used in a meter definition and is case sensitive.
 
 ```type=holding```
-Optional, default=holding. Specifies for all following read= or registers what type of modbus function will be used for reading the data. Valid values are holding or input.
+Optional, default=holding. Specifies for all following read= or registers what type of modbus function will be used for reading the data. Valid values are holding, input, coil, inputstatus or discreteinput. (inputstatus is the same as discreteinput)
 
 ```read=start,numRegs```
 Optional: non SunSpec, specifies to read numReg (16 bit) registers starting at 'start'. After each read= statement, emModbus2Influx will try to map the reading data to the required registers. This is to avoid unnecessary reads especially for TCP.
@@ -450,7 +454,8 @@ Overrides the default InfluxDB measurement for this meter.
 
 ```mqttqos=```
 ```mqttretain=```
-Overrides the MQTT default for QOS and RETAIN. Default are 0 bus can be specified via command line parameters or in the command line section of the config file. Can be set by MeterType as well.
+```mqttformat=```
+Overrides the MQTT default for QOS, RETAIN or mqtt json format. Default are 0 bus can be specified via command line parameters or in the command line section of the config file. Can be set by MeterType as well.
 
 ```influxwritemult=```
 Overrides the default from command line or config file. 0=Disable or >= 2.
@@ -641,14 +646,15 @@ Modbus slave address, mandatory if modbus queries are required.
 The hostname for Modbus-TCP slaves. If not specified, modbus-rtu will be used. All meters with the same hostname shares a TCP connection.
 
 ```Disabled=1```
-1 will disable the meter, 0 will enable it. Defaults to 0 if not specified.
+1 will disable meter reads and writes, 0 will enable both. Defaults to 0 if not specified. Other options: read, write or readwrite.
 
 ```measurement="InfluxMeasurement"```
 Overrides the default (or the value from the meter type) InfluxDB measurement for this meter.
 
 ```mqttqos=```
 ```mqttretain=```
-Overrides the MQTT default (or the value from the meter type) for QOS and RETAIN. Default are 0 bus can be specified via command line parameters or in the command line section of the config file. Can be set by MeterType as well.
+```mqttformat=```
+Overrides the MQTT default (or the value from the meter type) for QOS,RETAIN or mqtt json format. Defaults are 0 bus can be specified via command line parameters or in the command line section of the config file. Can be set by MeterType as well.
 
 ```influxwritemult=```
 Overrides the default from command line, config file or meter type. 0=Disable or >= 2.

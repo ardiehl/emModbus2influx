@@ -11,6 +11,7 @@
 
 extern int mqttQOS;
 extern int mqttRetain;
+extern int mqttFormat;
 extern int mqttDelayMs;
 extern char * mqttprefix;
 extern int influxWriteMult;    // write to influx only on x th query (>=2)
@@ -301,6 +302,7 @@ int parseMeterType (parser_t * pa) {
 	meterType->mqttRetain = mqttRetain;
 	meterType->mqttQOS = mqttQOS;
 	meterType->mqttDelayMs = mqttDelayMs;
+	meterType->mqttFormat = (mqttFormat_t)mqttFormat;
 	meterType->influxWriteMult = influxWriteMult;
 	parserExpect(pa,TK_EOL);  // after section
 	tk = parserGetToken(pa);
@@ -317,8 +319,14 @@ int parseMeterType (parser_t * pa) {
 					case TK_INPUT:
 						regType = regTypeInput;
 						break;
+					case TK_COIL:
+						regType = regTypeCoil;
+						break;
+					case TK_INPUTSTATUS:
+						regType = regTypeInputStatus;
+						break;
 					default:
-						parserError(pa,"Modbus register type expects input or holding");
+						parserError(pa,"Modbus register type expects input, holding, coil or inputstatus");
 				}
 				break;
             case TK_INFLUXWRITEMULT:
@@ -345,6 +353,11 @@ int parseMeterType (parser_t * pa) {
 			case TK_MQTTRETAIN:
 				parserExpectEqual(pa,TK_INTVAL);
 				meterType->mqttRetain = pa->iVal;
+				break;
+			case TK_MQTTFMT:
+				parserExpectEqual(pa,TK_INTVAL);
+				meterType->mqttFormat = (mqttFormat_t)pa->iVal;
+				if ((int)meterType->mqttFormat < 0 || (int)meterType->mqttFormat >= (int)mqttFormatLast) parserError(pa,"Invalid value for mqttfmt");
 				break;
             case TK_MQTTDELAYMS:
 				parserExpectEqual(pa,TK_INTVAL);
@@ -660,6 +673,7 @@ int parseMeter (parser_t * pa) {
 	meter->mqttRetain = mqttRetain;
 	meter->mqttDelayMs = mqttDelayMs;
 	meter->mqttQOS = mqttQOS;
+	meter->mqttFormat = (mqttFormat_t)mqttFormat;
 
 	tk = parserGetToken(pa);
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
@@ -725,6 +739,12 @@ int parseMeter (parser_t * pa) {
 				parserExpectEqual(pa,TK_INTVAL);
 				meter->mqttRetain = pa->iVal;
 				break;
+			case TK_MQTTFMT:
+				typeConflict++;
+				parserExpectEqual(pa,TK_INTVAL);
+				meter->mqttFormat = (mqttFormat_t)pa->iVal;
+				if ((int)meter->mqttFormat < 0 || (int)meter->mqttFormat >= (int)mqttFormatLast) parserError(pa,"Invalid value for mqttfmt");
+				break;
             case TK_MQTTDELAYMS:
 				typeConflict++;
 				parserExpectEqual(pa,TK_INTVAL);
@@ -735,11 +755,31 @@ int parseMeter (parser_t * pa) {
             case TK_DISABLE:
             	if (disableSpecified) parserError(pa,"disable= already specified in meter definition");
             	disableSpecified++;
-                parserExpectEqual(pa,TK_INTVAL);
-                meter->disabled = pa->iVal;
+                //parserExpectEqual(pa,TK_INTVAL);
+                //meter->disabled = pa->iVal;
+                parserExpect(pa, TK_EQUAL);
+                tk = parserGetToken(pa);
+                switch (tk) {
+					case TK_INTVAL:
+						meter->disabled = pa->iVal;
+						meter->writeDisabled = pa->iVal;
+						break;
+					case TK_READ:
+						meter->disabled = 1;
+						meter->writeDisabled = 0;
+						break;
+					case TK_WRITE:
+						meter->disabled = 0;
+						meter->writeDisabled = 1;
+						break;
+					case TK_READWRITE:
+						meter->disabled = 1;
+						meter->writeDisabled = 1;
+						break;
+                }
                 break;
 			case TK_TYPE:
-                if (typeConflict) parserError(pa,"type= needs to be specified before options that could be defined in type as well (e.g. influxwritemult, mqttprefix or measurement");
+                if (typeConflict) parserError(pa,"type= needs to be specified before options that could be defined in type as well (e.g. influxwritemult, mqttprefix, mqttfmt or measurement");
 				if (meter->meterType) parserError(pa,"%s: duplicate meter type",meter->name);
 				parserExpectEqual(pa,TK_STRVAL);
 				meter->meterType = findMeterType(pa->strVal);
@@ -1078,8 +1118,6 @@ int parseWrites (parser_t * pa) {
 	meterWrites_t *mw = (meterWrites_t *)calloc(1,sizeof(meterWrites_t));
 	meterWrite_t *w = NULL;
 	int disableSpecified = 0;
-	regType_t currRegType = regTypeHolding;
-
 	char errMsg[255];
 
 	parserExpect(pa,TK_EOL);  // after section
@@ -1090,20 +1128,6 @@ int parseWrites (parser_t * pa) {
 		switch(tk) {
 			case TK_EOL:
 				break;
-			case TK_TYPE:
-				parserExpect(pa,TK_EQUAL);
-				tk = parserGetToken(pa);
-				switch (tk) {
-					case TK_HOLDING:
-						currRegType = regTypeHolding;
-						break;
-					case TK_COIL:
-						currRegType = regTypeCoil;
-						break;
-					default:
-						parserError(pa,"Modbus register type to write to expects register or coil");
-				}
-				break;
             case TK_NAME:
             	parserExpectEqual(pa,TK_STRVAL);
 				if (mw->name) free(mw->name);
@@ -1113,6 +1137,11 @@ int parseWrites (parser_t * pa) {
             	parserExpectEqual(pa,TK_STRVAL);
             	mw->meter = findMeter(pa->strVal);
             	if (mw->meter == NULL) parserError(pa,"unknown meter name");
+				break;
+			case TK_COND:
+				parserExpectEqual(pa,TK_STRVAL);
+				if (mw->conditionFormula) free(mw->conditionFormula);
+				mw->conditionFormula = strdup(pa->strVal);
 				break;
 			case TK_SCHEDULE:
 				parserExpectEqual(pa,TK_STRVAL);
@@ -1146,6 +1175,20 @@ int parseWrites (parser_t * pa) {
 					default:
 						parserError(pa,"value or formula expected");
 				}
+
+				tk = parserGetToken(pa);
+				while (tk == TK_COMMA) {
+					tk = parserGetToken(pa);
+					switch (tk) {
+						case TK_COND:
+							parserExpectEqual(pa,TK_STRVAL);
+							w->conditionFormula = strdup(pa->strVal);
+							break;
+						default:
+							parserError(pa,"unexpected parameter for write");
+					}
+				}
+
 				meterWrite_t *wtemp = mw->meterWrite;
 				if (wtemp) {
 					while (wtemp->next) wtemp = wtemp->next;
@@ -1169,7 +1212,6 @@ int parseWrites (parser_t * pa) {
 
 	if (!mw->meter) parserError(pa,"no meter specified for write");
 	if (!mw->meterWrite) parserError(pa,"no registers to write specified");
-	w->regType = currRegType;
 
 	// add write
 	if (meterWrites) {
@@ -1256,7 +1298,13 @@ int readMeterDefinitions (const char * configFileName) {
 		"meter"           ,TK_METER,
 //		"register"        ,TK_REGISTER,
 		"coil"            ,TK_COIL,
+		"inputstatus"     ,TK_INPUTSTATUS,
+		"discreteinput"   ,TK_INPUTSTATUS,
 		"write"           ,TK_WRITE,
+		"mqttformat"      ,TK_MQTTFMT,
+		"readwrite"       ,TK_READWRITE,
+		"cond"            ,TK_COND,
+		"condition"       ,TK_COND,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
@@ -1291,7 +1339,7 @@ int readMeterDefinitions (const char * configFileName) {
 
 	// set the modbus RTU handle in the meter or open an IP connection to the meter
 	while (meter) {
-		if (!meter->disabled) {
+		if (!meter->disabled && !meter->writeDisabled) {
 			if (meter->isTCP) {
 				//meter->mb = modbus_new_tcp_pi(meter->hostname, const char *service);
 				//do the open when querying the meter to be able to retry if temporary not available

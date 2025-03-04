@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.28 Armin Diehl <ad@ardiehl.de> Nov 17,2024 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.31 Armin Diehl <ad@ardiehl.de> Mar 4,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -80,6 +80,7 @@ int scanRTU;
 int scanRTUReg;
 int modbusDebug;
 influx_client_t *iClient;
+int showModbusRetries;
 
 #ifndef DISABLE_MQTT
 mqtt_pubT *mClient;
@@ -98,6 +99,7 @@ int influxWriteMult;    // write to influx only on x th query (>=2)
 int iVerifyPeer = 1;
 int mqttQOS;
 int mqttRetain;
+int mqttFormat;
 int mqttDelayMs;
 char * mqttprefix;
 char * mqttstatprefix;
@@ -117,6 +119,7 @@ char *ghost;
 int gport = 3000;
 char *gtoken;
 char *gpushid;
+char *gpushStatId;
 int gUseInfluxMeasurement;
 int gVerifyPeer = 1;
 influx_client_t *gClient;
@@ -349,16 +352,21 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1,'l',"mqttdelay"      ,&mqttDelayMs          ,"delay milliseconds after mqtt publish")
 		AP_OPT_INTVAL       (1,'r',"mqttretain"     ,&mqttRetain           ,"default mqtt retain, can be changed for meter")
 		AP_OPT_STRVAL       (1,'i',"mqttclientid"   ,&mClient->clientId    ,"mqtt client id")
+		AP_OPT_INTVAL       (1,0  ,"mqttformat"     ,&mqttFormat           ,"json format, 0=std,1=Logo array")
+
 #endif
 		AP_OPT_STRVAL       (1,0  ,"ghost"          ,&ghost                ,"grafana server url w/o port, e.g. ws://localost or https://localhost")
 		AP_OPT_INTVAL       (1,0  ,"gport"          ,&gport                ,"grafana port")
 		AP_OPT_STRVAL       (1,0  ,"gtoken"         ,&gtoken               ,"authorisation api token for Grafana")
 		AP_OPT_STRVAL       (1,0  ,"gpushid"        ,&gpushid              ,"push id for Grafana")
+		AP_OPT_STRVAL       (1,0  ,"gpushstatid"    ,&gpushStatId          ,"statistics push id for Grafana")
 		AP_OPT_INTVAL       (1,0  ,"ginfluxmeas"    ,&gUseInfluxMeasurement,"use influx measurement names for grafana as well")
 		AP_OPT_INTVAL       (1,0  ,"gsslverifypeer" ,&gVerifyPeer          ,"grafana SSL certificate verification (0=off)")
 
 		AP_OPT_INTVALFO     (0,'v',"verbose"        ,&log_verbosity        ,"increase or set verbose level")
 		AP_OPT_INTVALF      (0,'G',"modbusdebug"    ,&modbusDebug          ,"set debug for libmodbus")
+		AP_OPT_INTVALF      (0,0,"modbusshowretries",&showModbusRetries    ,"show retries on failed modbus reads")
+
 		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
 		AP_OPT_STRVAL       (0, 'H',"cron"          ,&cronExpression       ,"Crontab style expression like Sec Min Hour Day Mon Wday")
 		AP_OPT_INTVALF      (0, 0 ,"no-threads"     ,&disableThreadedQuery  ,"enable threaded query (one thread for each serial port and one for tcp)")
@@ -583,71 +591,114 @@ int mqttSendData (meter_t * meter,int dryrun) {
 	if (buf == NULL) return -1;
 	*buf=0;
 
-	arrayName = &emptyStr;
-	APPEND("{\"name\":\"");
-	measurement = meter->influxMeasurement;
-	if (! measurement) measurement = influxMeasurement;
-	if (measurement) {
-		APPEND(measurement); APPEND(".");
+	switch (meter->mqttFormat) {
+		case mqttFormatStd:
+			arrayName = &emptyStr;
+			APPEND("{\"name\":\"");
+			measurement = meter->influxMeasurement;
+			if (! measurement) measurement = influxMeasurement;
+			if (measurement) {
+				APPEND(measurement); APPEND(".");
+			}
+			APPEND(meter->name);
+			APPEND("\", ");
+
+			// registers from meter type
+			while (rr) {
+				if (rr->registerDef->enableMqttWrite) {
+					numRegs++;
+					if (rr->registerDef->arrayName) {
+						if (strcmp(arrayName,rr->registerDef->arrayName) != 0) {		// start new array
+							if (strlen(arrayName)) APPEND("]");						// close previous array
+							arrayName = rr->registerDef->arrayName;
+							if (!first) APPEND(", ");
+							first = 0;
+							APPEND("\""); APPEND(arrayName); APPEND("\":[");			// start new array
+							appendValue(0,rr,&buf,&buflen,&bufsize);
+						} else {				// add to array as long as we are in the same array
+							APPEND(", ");
+							appendValue(0,rr,&buf,&buflen,&bufsize);
+						}
+					} else {		// register not as array
+						if (strlen(arrayName)) { APPEND("]"); arrayName = &emptyStr; } // close previous array
+						if (!first) APPEND(", ");
+						first = 0;
+						appendValue(1,rr,&buf,&buflen,&bufsize);
+					}
+				}
+				rr = rr->next;
+			}
+
+			// registers from meter specific formulas
+			while (mf) {
+				if (mf->enableMqttWrite) {
+					numRegs++;
+					if (mf->arrayName) {
+						if (strcmp(arrayName,mf->arrayName) != 0) {					// start new array
+							if (strlen(arrayName)) APPEND("]");						// close previous array
+							arrayName = mf->arrayName;
+							if (!first) APPEND(", ");
+							first = 0;
+							APPEND("\""); APPEND(arrayName); APPEND("\":[");			// start new array
+							appendFormulaValue(0,mf,&buf,&buflen,&bufsize);
+						} else {				// add to array as long as we are in the same array
+							APPEND(", ");
+							appendFormulaValue(0,mf,&buf,&buflen,&bufsize);
+						}
+					} else {		// register not an array
+						if (strlen(arrayName)) { APPEND("]"); arrayName = &emptyStr; } // close previous array
+						if (!first) APPEND(", ");
+						first = 0;
+						appendFormulaValue(1,mf,&buf,&buflen,&bufsize);
+					}
+				}
+				mf = mf->next;
+			}
+
+			if (strlen(arrayName)) APPEND("]");
+
+			APPEND("}");
+			break;
+		case mqttFormatLogoArr:
+			// {"state":{"var1":{"value":[0,0]},"var2":{"value":[0]}}}
+			APPEND("{\"state\":{");
+
+			// registers from meter type
+			while (rr) {
+				if (rr->registerDef->enableMqttWrite) {
+					numRegs++;
+					if (!first) APPEND(",");
+					first = 0;
+					APPEND("\"");
+					APPEND(rr->registerDef->name);
+					APPEND("\":{\"value\":[");
+					appendValue(0,rr,&buf,&buflen,&bufsize);
+					APPEND("]}");
+				}
+				rr = rr->next;
+			}
+
+			// registers from meter specific formulas
+			while (mf) {
+				if (mf->enableMqttWrite) {
+					numRegs++;
+					if (!first) APPEND(",");
+					first = 0;
+					first = 0;
+					APPEND("\"");
+					APPEND(mf->name);
+					APPEND("\":{\"value\":[");
+					appendFormulaValue(0,mf,&buf,&buflen,&bufsize);
+					APPEND("]}");
+				}
+				mf = mf->next;
+			}
+			APPEND("}}");
+			break;
+		default:
+			EPRINTFN("Unsupported mqtt format (%d)",(int)meter->mqttFormat);
+			exit(1);
 	}
-	APPEND(meter->name);
-	APPEND("\", ");
-
-	// registers from meter type
-	while (rr) {
-        if (rr->registerDef->enableMqttWrite) {
-			numRegs++;
-            if (rr->registerDef->arrayName) {
-                if (strcmp(arrayName,rr->registerDef->arrayName) != 0) {		// start new array
-                    if (strlen(arrayName)) APPEND("]");						// close previous array
-                    arrayName = rr->registerDef->arrayName;
-                    if (!first) APPEND(", ");
-                    first = 0;
-                    APPEND("\""); APPEND(arrayName); APPEND("\":[");			// start new array
-                    appendValue(0,rr,&buf,&buflen,&bufsize);
-                } else {				// add to array as long as we are in the same array
-                    APPEND(", ");
-                    appendValue(0,rr,&buf,&buflen,&bufsize);
-                }
-            } else {		// register not as array
-                if (strlen(arrayName)) { APPEND("]"); arrayName = &emptyStr; } // close previous array
-                if (!first) APPEND(", ");
-                first = 0;
-                appendValue(1,rr,&buf,&buflen,&bufsize);
-            }
-        }
-		rr = rr->next;
-	}
-
-	// registers from meter specific formulas
-	while (mf) {
-		if (mf->enableMqttWrite) {
-			numRegs++;
-            if (mf->arrayName) {
-                if (strcmp(arrayName,mf->arrayName) != 0) {					// start new array
-                    if (strlen(arrayName)) APPEND("]");						// close previous array
-                    arrayName = mf->arrayName;
-                    if (!first) APPEND(", ");
-                    first = 0;
-                    APPEND("\""); APPEND(arrayName); APPEND("\":[");			// start new array
-                    appendFormulaValue(0,mf,&buf,&buflen,&bufsize);
-                } else {				// add to array as long as we are in the same array
-                    APPEND(", ");
-                    appendFormulaValue(0,mf,&buf,&buflen,&bufsize);
-                }
-            } else {		// register not an array
-                if (strlen(arrayName)) { APPEND("]"); arrayName = &emptyStr; } // close previous array
-                if (!first) APPEND(", ");
-                first = 0;
-                appendFormulaValue(1,mf,&buf,&buflen,&bufsize);
-            }
-        }
-		mf = mf->next;
-	}
-
-	if (strlen(arrayName)) APPEND("]");
-
-	APPEND("}");
 
     int doWrite = 1;        // if mqtt retain is send, only write if data has been changed
 #ifndef MQTT_SEND_UNCHANGED
@@ -892,7 +943,7 @@ int grafanaAppendData (influx_client_t* c, meter_t *meter, uint64_t timestamp) {
 
 int test;
 
-int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
+int grafanaAppendStat (influx_client_t* c, uint64_t timestamp, double totalQueryTime) {
 	char channelName[255];
 	char fieldName[255];
 	int rc;
@@ -908,14 +959,20 @@ int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
 	test++;
 
 	memset(channelName,0,sizeof(channelName));
-	if (gUseInfluxMeasurement) {
-		strncpy(channelName,influxMeasurement,CHANNEL_MAX_LEN);
+	if (gpushStatId) {
+		strncpy(channelName,gpushStatId,CHANNEL_MAX_LEN);
 		if (strlen(channelName)) strncat(channelName,"/",CHANNEL_MAX_LEN);
+	} else {
+		if (gUseInfluxMeasurement) {
+			strncpy(channelName,influxMeasurement,CHANNEL_MAX_LEN);
+			if (strlen(channelName)) strncat(channelName,"/",CHANNEL_MAX_LEN);
+			strncat(channelName,"_STATISTICS",CHANNEL_MAX_LEN);
+		} else
+			strncat(channelName,"_STATISTICS",CHANNEL_MAX_LEN);
 	}
-	strncat(channelName,"_STATISTICS",CHANNEL_MAX_LEN);
 
 	while (meter) {
-		if (!meter->disabled) {
+		if (!meter->disabled && !meter->isFormulaOnly) {
 			if (meter->isTCP || meter->isSerial) {
 				if (statCount == 0)
 					influxdb_format_line(c, INFLUX_MEAS(channelName), INFLUX_END);
@@ -970,6 +1027,10 @@ int grafanaAppendStat (influx_client_t* c, uint64_t timestamp) {
 	}
 
 	if (statCount > 0) {
+		// write total
+		rc = influxdb_format_line(c, INFLUX_F_FLT("__TOTAL.last", totalQueryTime, 3), INFLUX_END);
+		if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d, INFLUX_F_FLT",rc); exit(1); }
+
 		rc = influxdb_format_line(c, INFLUX_TS(timestamp), INFLUX_END);
 		if (rc < 0) { EPRINTFN("influxdb_format_line failed, rc:%d , INFLUX_TS (grafaStat)",rc); exit(1); }
 		LOGN(2,"%d stat lines posted to Grafana",statCount);
@@ -989,6 +1050,7 @@ void mqttSendMeterData(double queryTime) {
 	int numMeters;
 	meter_t * meter;
 	char statBuf[255];
+	int rc;
 
 	if (mClient) {		// mqtt
 		if (dryrun) printf("\nDryrun: would send to mqtt:\n");
@@ -996,8 +1058,8 @@ void mqttSendMeterData(double queryTime) {
 		meter = meters;
 		while(meter) {
 			if (meter->meterHasBeenRead || (meter->isFormulaOnly)) {	// always send for formula only meters
-				mqttSendData (meter,dryrun);
-				numMeters++;
+				rc = mqttSendData (meter,dryrun);
+				if (rc == 0) numMeters++;
 			}
 			meter = meter->next;
 		}
@@ -1012,6 +1074,19 @@ void mqttSendMeterData(double queryTime) {
 	}
 }
 #endif
+
+
+// for answering websocket pings
+//int pcount;
+void periodicProc() {
+	//pcount++;
+	//printf("periodicProc %d\n",pcount);
+	if (gClient)
+		if (gClient->influxBufLen == 0) influxdb_post_http(gClient);
+	if (iClient)
+		if (iClient->influxBufLen == 0) influxdb_post_http(iClient);
+}
+
 
 int main(int argc, char *argv[]) {
 	int rc,i;
@@ -1283,14 +1358,12 @@ int main(int argc, char *argv[]) {
 	int loopCount = 0;
 	while (!terminated) {
 #ifndef DISABLE_MQTT
-		mqtt_pub_yield (mClient); 					// for mqtt ping, seeps for 100ms if no mqqt specified
+		mqtt_pub_yield (mClient); 					// for mqtt ping, sleeps for 100ms if no mqqt specified
 #endif
-		if (gClient) influxdb_post_http(gClient);	// for websocket ping
-		//msleep(200);
-		//printf("."); fflush(stdout);
+		periodicProc();								// for websocket ping
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
 		if (isFirstQuery) rc = 1;
-		else rc = cron_queryMeters(dryrun || verbose>0, dryrun);
+		else rc = cron_queryMeters(dryrun || verbose>0, dryrun, &periodicProc);
 		if (rc > 0) {
 #ifndef DISABLE_FORMULAS
 			formulaNumPolls++;
@@ -1337,6 +1410,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
+			periodicProc();
 			if (gClient) {		// grafana
 				influxdb_post_freeBuffer(gClient);
 				influxTimestamp = influxdb_getTimestamp();
@@ -1351,7 +1425,7 @@ int main(int argc, char *argv[]) {
 					}
 					meter = meter->next;
 				}
-				grafanaAppendStat (gClient, influxTimestamp);
+				grafanaAppendStat (gClient, influxTimestamp, queryTime);
 				if (dryrun) {
 					if (gClient->influxBufLen) {
 						printf("\nDryrun: would send to grafana:\n%s\n",gClient->influxBuf);
@@ -1374,7 +1448,7 @@ int main(int argc, char *argv[]) {
 #ifndef DISABLE_MQTT
 			mqttSendMeterData(queryTime);
 #endif
-
+			periodicProc();
 			if (dryrun) {
 				dryrun--;
 				if (!dryrun) terminated++;

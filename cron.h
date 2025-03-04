@@ -71,7 +71,7 @@ void cron_showSchedules();
  * @param Verbose if > 1
   * @return the number of meters queried successful
  */
-int cron_queryMeters(int verboseMsg, int dryrun);
+int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)());
 
 /**
  * Set the default schedule for all meters where no schedules are defined
