@@ -674,20 +674,35 @@ disabled=0
 Writing to modbus registers or coils can be scheduled or performed on each query. A write definition can perform multiple register / coil writes for one modbus device. The write definition can have a formula as a condition that will skip all registers in the definition. In addition, each register write definition can have a condition as well. Target for writes can be a meter formula as well.
 
 ```[WriterWrite]```
+
 where the [ has to be the first character of a line. Options that can be specified for write are:
+
 ```name="NameOfWrite"```
+
 Mandatory, name of the write definition, used in debug / verbose outputs only.
+
 ```disabled="0|1"```
+
 1 disables the write definitions.
+
 ```cond="formula"```
+
 Overall condition formula for thiese writes. If result is <= 0, none of the write definitions within this [MeterWrites] will be performed.
+
 ```schedule="```
+
 Include in defined schedule
+
 ```meter="NameOfMeter"```
+
 Mandatory, name of the defined meter (modbus device) to write to.
+
 ```write="RegName",intVal[,cond="formula"[,return]]```
+
 ```write="RegName",floatVal[,cond="formula"[,return]]```
+
 ```write="RegName","formula"[,cond="formula"[,return]]```
+
 Unlimited number of write statements. RegName needs to be defined in the meter definition (via the meter type) and specifies the modbus register(s) and types. The value to write can be an integer, a float or a bit (>0 equals true) for a coil. An optional condition can be appended to avoid that sigle wite (>0 will perform the write).
 If return is given, no further write statements will be executed in case the write has been performed.
 
