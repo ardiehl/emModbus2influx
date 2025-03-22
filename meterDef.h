@@ -94,6 +94,7 @@
 #define TK_READWRITE       636
 #define TK_COND            637
 #define TK_RETURN          638
+#define TK_QUERYDELAY      639
 
 #define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -195,6 +196,7 @@ struct meterType_t {
 	char *mqttprefix;
 	char * influxMeasurement;
 	int influxWriteMult;
+	int modbusQueryDelayMs;
 };
 
 

@@ -590,7 +590,7 @@ int getRegisterValue (meterRegisterRead_t *rr, uint16_t *buf, int sunspecOffset,
 
 	bufStartAddr = rr->startAddr + sunspecOffset - regStart;
 
-	VPRINTFN(5,"getRegisterValue %d numRegs: %d, regStart: %d, regEnd: %d, type: %d",rr->registerDef->startAddr,rr->registerDef->numRegisters,regStart,regEnd,rr->registerDef->type);
+	VPRINTFN(5,"getRegisterValue %d (0x%04x) numRegs: %d, regStart: %d (0x%04x) , regEnd: %d (0x%04x), type: %d",rr->registerDef->startAddr,rr->registerDef->startAddr,rr->registerDef->startAddr,rr->registerDef->numRegisters,regStart,regEnd,regEnd,rr->registerDef->type);
 
 	switch (rr->registerDef->type) {
 		case TK_FLOAT:
@@ -681,6 +681,8 @@ int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int nu
 	int res;
 	char mbFunction[30];
 
+	if (meter->meterType->modbusQueryDelayMs) msleep(meter->meterType->modbusQueryDelayMs);
+
 	switch (regType) {
 		case regTypeHolding:
 			res = modbus_read_registers(*meter->mb, startAddr, numRegisters, *buf);  // holding registers
@@ -710,7 +712,7 @@ int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int nu
 			exit(2);
 			break;
 	}
-	VPRINTFN(4,"%s: %s (mb,%d,%d) returned %d",mbFunction,meter->name,startAddr,numRegisters,res);
+	VPRINTFN(4,"%s: %s (mb,%d (0x%04x),%d) returned %d",mbFunction,meter->name,startAddr,startAddr,numRegisters,res);
 	if (res < 0) VPRINTFN(1,"%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",mbFunction,numRegisters,startAddr,startAddr,errno,modbus_strerror(errno));
 	return res;
 }
@@ -753,7 +755,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 		int retryCount = READ_RETRY_COUNT;
 		int retryDelayMS = READ_RETRY_DELAYMS;
 		int retryCounts = 0;
-		int initialRes = res;
+		int initialRes = errno;
 		if (res == -1) initialRes = errno;
 		do {
 			// we sometimes get a timeout or Invalid data on Fronius Symo via TCP (both Symo and Symo Advanced), retry instead of closing connection
@@ -766,10 +768,10 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			retryCounts++;
 		} while (res < 0 && retryCount);
 		if (res < 0)
-			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d, numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,numRegisters,res,modbus_strerror(errno),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
+			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d (0x%04x), numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,startAddr,numRegisters,res,modbus_strerror(errno),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
 		else
 			if (showModbusRetries || verbose>0)
-				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d, numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(errno));
+				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d (0x%04x), numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(initialRes));
 	}
 
     if(res < 0) {
@@ -1541,7 +1543,9 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 
 	// first read the defined sections
 	meterReads = meter->meterType->meterReads;
+	int registerReadNum = 0;
 	while (meterReads) {
+		registerReadNum++;
 		blockUsed = 0;
 		sunspecOffset = sunspecGetOffset (meter,meterReads->sunspecId);
 		regStart = meterReads->startAddr + sunspecOffset;
@@ -1557,17 +1561,18 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			}
 			// check and get the values that are in the range
 			meterRegisterRead = meter->registerRead;
+			
 			while (meterRegisterRead) {
-                // resolve sunspec scaling factor
-                if (meterRegisterRead->registerDef->sunspecSfRegister && meterRegisterRead->sunspecSf == 0) {
-                    reg = meterRegisterRead->sunspecSfRegister; // + sunspecOffset;
-                    if ((regStart <= reg) && (reg <= regEnd)) {
-                        meterRegisterRead->sunspecSf = (int16_t)buf[reg - regStart];
-                        VPRINTFN(3,"%s (%s): sunspec scaling factor register %d (%d), sf=%d",meter->name,meterRegisterRead->registerDef->name,meterRegisterRead->registerDef->sunspecSfRegister,reg,meterRegisterRead->sunspecSf);
-                    }
-                }
+				// resolve sunspec scaling factor
+				if (meterRegisterRead->registerDef->sunspecSfRegister && meterRegisterRead->sunspecSf == 0) {
+					reg = meterRegisterRead->sunspecSfRegister; // + sunspecOffset;
+					if ((regStart <= reg) && (reg <= regEnd)) {
+						meterRegisterRead->sunspecSf = (int16_t)buf[reg - regStart];
+						VPRINTFN(3,"%s (%s): sunspec scaling factor register %d (%d), sf=%d",meter->name,meterRegisterRead->registerDef->name,meterRegisterRead->registerDef->sunspecSfRegister,reg,meterRegisterRead->sunspecSf);
+					}
+				}
 
-				//printf("regStart: %d regEnd: %d  %d %d\n",regStart,regEnd,meterRegisterRead->startAddr,meterRegisterRead->startAddr + meterRegisterRead->registerDef->numRegisters-1);
+				//printf("regStart: %d (0x%04x) regEnd: %d (0x%04x) %d (0x%04x) %d (0x%04x)\n",regStart,regStart,regEnd,regEnd,meterRegisterRead->startAddr,meterRegisterRead->startAddr,meterRegisterRead->startAddr + meterRegisterRead->registerDef->numRegisters-1,meterRegisterRead->startAddr + meterRegisterRead->registerDef->numRegisters-1);
 				if ((regStart <= meterRegisterRead->startAddr) && (meterRegisterRead->startAddr + meterRegisterRead->registerDef->numRegisters - 1 <= regEnd) && (meterReads->regType == meterRegisterRead->registerDef->regType)) {
 						meterRegisterRead->hasBeenRead++;
 						if (getRegisterValue (meterRegisterRead, buf, 0, regStart, regEnd) != 0) {
@@ -1575,7 +1580,8 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 							free(buf);
 							meter->numErrs++;
 							exit(1);
-						}
+						} else
+							VPRINTFN(9,"%s: register %s set from read #%d",meter->name,meterRegisterRead->registerDef->name,registerReadNum);
 						blockUsed++;
 				}
 				meterRegisterRead = meterRegisterRead->next;
@@ -1632,11 +1638,11 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     free(buf); buf = NULL;
                 } else {
                 	meter->numErrs++;
-                	VPRINTFN(1,"%s (%s): readRegisters (%d,%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regEnd,modbus_strerror(errno));
+                	VPRINTFN(1,"%s (%s): readRegisters (%d (0x%04x),%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regStart,regEnd,modbus_strerror(errno));
                     return res;
                 }
             } else
-                VPRINTFN(4,"%s: register %d (%s) already set (from one of the read's)",meter->name,meterRegisterRead->registerDef->startAddr,meterRegisterRead->registerDef->name);
+                VPRINTFN(4,"%s: register %d (0x%04x) (%s) already set (from one of the read's)",meter->name,meterRegisterRead->registerDef->startAddr,meterRegisterRead->registerDef->startAddr,meterRegisterRead->registerDef->name);
         }
         meterRegisterRead = meterRegisterRead->next;
 	}

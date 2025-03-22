@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.32 Armin Diehl <ad@ardiehl.de> Mar 22,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.33 Armin Diehl <ad@ardiehl.de> Mar 22,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1199,16 +1199,16 @@ int main(int argc, char *argv[]) {
 					int bufLen = 0;
 					char *buf = (char *)calloc(1,bufSize);
 
-					//       123456789012345678901234567890 Addr   IMG Value
-					printf(" Field                          Addr   IMG Value\n");
-					printf(" -----------------------------------------------------\n");
+					//       123456789012345678901234567890 Addr    IMG  Value
+					printf(" Field                          Addr    IMG  Value\n");
+					printf(" -------------------------------------------------------\n");
 
 					rr = meter->registerRead;
 					while (rr) {
 					//void appendValue (int includeName, meterRegisterRead_t *rr, char **dest, int *len, int *bufsize)
 						bufLen = 0; *buf = 0;
 						appendValue(0,rr,&buf,&bufLen,&bufSize);
-						printf(" %-30s 0x%04x %d%d%d %s\n",rr->registerDef->name,rr->registerDef->startAddr,
+						printf(" %-30s 0x%04x  %d%d%d  %s\n",rr->registerDef->name,rr->registerDef->startAddr,
 							rr->registerDef->enableInfluxWrite,rr->registerDef->enableMqttWrite,rr->registerDef->enableGrafanaWrite,buf);
 						rr = rr->next;
 					}
@@ -1219,7 +1219,7 @@ int main(int argc, char *argv[]) {
 					while (mf) {
 						bufLen = 0; *buf = 0;
 						appendFormulaValue(0,mf,&buf,&bufLen,&bufSize);
-						printf(" %-30s        %d%d%d %s\n",mf->name,
+						printf(" %-30s         %d%d%d  %s\n",mf->name,
 							mf->enableInfluxWrite,mf->enableMqttWrite,mf->enableGrafanaWrite,buf);
 						mf = mf->next;
 

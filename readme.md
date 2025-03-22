@@ -453,6 +453,9 @@ When using sunspec, register addresses will be offsets within each id block (sta
 ```measurement="InfluxMeasurement"```
 Overrides the default InfluxDB measurement for this meter.
 
+```querydelay=x```
+Delay in ms between modbus queries while reading a meter. Some devices, e.g. the jk inverter BMS will not respond to seqencial queries and require a delay, e.g. 20 ms for the jk bms.
+
 ```mqttqos=```
 ```mqttretain=```
 ```mqttformat=```

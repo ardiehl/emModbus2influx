@@ -329,11 +329,15 @@ int parseMeterType (parser_t * pa) {
 						parserError(pa,"Modbus register type expects input, holding, coil or inputstatus");
 				}
 				break;
-            case TK_INFLUXWRITEMULT:
-                parserExpectEqual(pa,TK_INTVAL);
+			case TK_QUERYDELAY:
+				parserExpectEqual(pa,TK_INTVAL);
+				meterType->modbusQueryDelayMs = pa->iVal;
+				break;
+			case TK_INFLUXWRITEMULT:
+				parserExpectEqual(pa,TK_INTVAL);
 				meterType->influxWriteMult = pa->iVal;
 				if (pa->iVal != 0)
-                    if (pa->iVal < 2) parserError(pa,"influxwritemult: 0 or >=2 expected");
+				if (pa->iVal < 2) parserError(pa,"influxwritemult: 0 or >=2 expected");
 				break;
 			case TK_MEASUREMENT:
 				if (meterType->influxMeasurement) parserError(pa,"duplicate measurement");
@@ -359,7 +363,7 @@ int parseMeterType (parser_t * pa) {
 				meterType->mqttFormat = (mqttFormat_t)pa->iVal;
 				if ((int)meterType->mqttFormat < 0 || (int)meterType->mqttFormat >= (int)mqttFormatLast) parserError(pa,"Invalid value for mqttfmt");
 				break;
-            case TK_MQTTDELAYMS:
+			case TK_MQTTDELAYMS:
 				parserExpectEqual(pa,TK_INTVAL);
 				meterType->mqttDelayMs = pa->iVal;
 				break;
@@ -1312,6 +1316,7 @@ int readMeterDefinitions (const char * configFileName) {
 		"cond"            ,TK_COND,
 		"condition"       ,TK_COND,
 		"return"          ,TK_RETURN,
+		"querydelay"      ,TK_QUERYDELAY,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
