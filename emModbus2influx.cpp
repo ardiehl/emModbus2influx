@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.31 Armin Diehl <ad@ardiehl.de> Mar 4,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.32 Armin Diehl <ad@ardiehl.de> Mar 22,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -142,6 +142,7 @@ void scanAddresses() {
 		ctx = *modbusRTU_getmh(0);
 		isSerial++;
 	}
+	modbus_set_debug(ctx,modbusDebug);
 
 	if (!isSerial && scanAddr == 0) scanAddr = 0xff;
 

@@ -711,7 +711,7 @@ int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int nu
 			break;
 	}
 	VPRINTFN(4,"%s: %s (mb,%d,%d) returned %d",mbFunction,meter->name,startAddr,numRegisters,res);
-	if (res < 0) VPRINTFN(1,"%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",mbFunction,numRegisters,startAddr,startAddr,errno,modbus_strerror(res));
+	if (res < 0) VPRINTFN(1,"%s (%d registers starting at %d (0x%04x)) failed with %d (%s)",mbFunction,numRegisters,startAddr,startAddr,errno,modbus_strerror(errno));
 	return res;
 }
 
@@ -766,10 +766,10 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			retryCounts++;
 		} while (res < 0 && retryCount);
 		if (res < 0)
-			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d, numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,numRegisters,res,modbus_strerror(res),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
+			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d, numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,numRegisters,res,modbus_strerror(errno),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
 		else
 			if (showModbusRetries || verbose>0)
-				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d, numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(initialRes));
+				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d, numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(errno));
 	}
 
     if(res < 0) {

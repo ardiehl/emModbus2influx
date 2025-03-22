@@ -674,6 +674,7 @@ int parseMeter (parser_t * pa) {
 	meter->mqttDelayMs = mqttDelayMs;
 	meter->mqttQOS = mqttQOS;
 	meter->mqttFormat = (mqttFormat_t)mqttFormat;
+	meter->modbusAddress = -1;
 
 	tk = parserGetToken(pa);
 	//printf("tk2: %d, %s\n",tk,parserGetTokenTxt(pa,tk));
@@ -975,7 +976,7 @@ int parseMeter (parser_t * pa) {
 	if (!meter->name) parserError(pa,"Meter name not specified");
 	if (!meter->meterType)
         if (!meter->meterFormula) parserError(pa,"%s: No meter formula registers and no meter type specified, either one or both need to be specified",meter->name);
-	if (meter->modbusAddress <1 && meter->meterType)
+	if (meter->modbusAddress < 0 && meter->meterType)
 		if (!meter->meterType->isFormulaOnly) parserError(pa,"%s: No modbus address specified",meter->name);
 
 	// add meter
