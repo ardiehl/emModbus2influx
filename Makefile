@@ -19,7 +19,7 @@ endif
 # muParser, formular parser, available on fedora but not on RedHat 8
 # when set to 1 make will download and compile muparser
 ifndef MUPARSERSTATIC
-MUPARSERSTATIC = 0
+MUPARSERSTATIC = 1
 endif
 
 # libmodbus, not available e.g. on cerbos GX
@@ -160,7 +160,7 @@ endif
 ifeq ($(FORMULASUPPORT),1)
 LIBS          += -lreadline
 ifeq ($(MUPARSERSTATIC),1)
-MUPARSERVERSION= 2.3.3-1
+MUPARSERVERSION= 2.3.5
 MUPARSERSRCFILE= v$(MUPARSERVERSION).tar.gz
 MUPARSERSRC    = https://github.com/beltoforion/muparser/archive/refs/tags/$(MUPARSERSRCFILE)
 MUPARSERDIR    = muparser-$(ARCH)
@@ -179,7 +179,7 @@ endif
 
 ifeq ($(CURLSTATIC),1)
 CURLVERSION2 = $(subst .,_,$(CURLVERSION))
-CURLVERSION  = 8.10.1
+CURLVERSION  = 8.13.0
 CURLSRCFILE  = curl-$(CURLVERSION).tar.xz
 CURLSRC      = https://github.com/curl/curl/releases/download/curl-$(CURLVERSION2)/$(CURLSRCFILE)
 CURLDIR      = curl-$(ARCH)
@@ -189,7 +189,7 @@ CURLMAKE     = $(CURLMAKEDIR)/Makefile
 CURLLIB      = $(CURLMAKEDIR)/lib/.libs/libcurl.a
 LIBS         += $(CURLLIB)
 CPPFLAGS     += -I$(CURLMAKEDIR)/include -DCURL_STATIC
-CURLCONFIG   =  $(CONFIGUREHOST) --disable-file --disable-ldap --disable-ldaps --disable-tftp --disable-dict --without-libidn2 --enable-websockets --disable-ftp --disable-rtsp --disable-telnet --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-manual --disable-ntlm --disable-unix-sockets --disable-cookies --without-brotli --disable-docs --without-libpsl
+CURLCONFIG   =  $(CONFIGUREHOST) --disable-file --disable-ldap --disable-ldaps --disable-tftp --disable-dict --without-libidn2 --enable-websockets --disable-ftp --disable-rtsp --disable-telnet --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher --disable-mqtt --disable-manual --disable-ntlm --disable-unix-sockets --disable-cookies --without-brotli --disable-docs --without-libpsl --without-nghttp2 --without-nghttp3
 ifneq ($(DISABLE_CURLSSL),1)
 CURLCONFIG   += --with-openssl
 ifndef SSL_DYNLIBS
@@ -247,7 +247,7 @@ $(MODBUSTAR): | $(OBJDIR)
 $(MODBUSMAKE):        $(MODBUSTAR)
 	@echo "unpacking $(MODBUSTAR)"
 	@$(MAKEDIR) $(MODBUSDIR)
-	@cd $(MODBUSDIR) && $(TAR) x --gunzip < $(MODBUSTAR);
+	@cd $(MODBUSDIR) && gunzip -c $(MODBUSTAR) | $(TAR) x;
 	
 
 $(MODBUSLIB): $(MODBUSMAKE) | $(OBJDIR)

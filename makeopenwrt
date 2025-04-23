@@ -2,6 +2,7 @@
 # Set up paths and environment for cross compiling for openwrt
 
 # libstdcpp6 needs to be installed on openwrt
+# AD Apr 22,2025: Changed to OpenwrtOne
 
 checkdir () {
 	if [ ! -d $2 ]; then
@@ -17,13 +18,15 @@ checkexe () {
 	fi
 }
 
-TARGET_ARCH=mips-openwrt-linux-musl
-export ARCH=mips_24kc
-#export CROSS_COMPILE="mips-openwrt-linux-uclibc"
+#TARGET_ARCH=mips-openwrt-linux-musl
+TARGET_ARCH=aarch64-openwrt-linux
+#export ARCH=mips_24kc
+export ARCH=$TARGET_ARCH
 
 SSL_DYNLIBS="-lz -lssl -lcrypto"
 
-export TOOLCHAIN_DIR=/usr/local/openwrt-toolchain-ath79-generic_gcc-12.3.0_musl.Linux-x86_64/toolchain-mips_24kc_gcc-12.3.0_musl
+#export TOOLCHAIN_DIR=/usr/local/openwrt-toolchain-ath79-generic_gcc-12.3.0_musl.Linux-x86_64/toolchain-mips_24kc_gcc-12.3.0_musl
+export TOOLCHAIN_DIR=/usr/local/openwrt-toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl
 checkdir TOOLCHAIN_DIR $TOOLCHAIN_DIR
 
 export STAGING_DIR=$TOOLCHAIN_DIR

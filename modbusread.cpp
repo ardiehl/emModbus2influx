@@ -970,6 +970,57 @@ static value_type bit(value_type v1, value_type v2) { return ((Round(v2) >> Roun
 static value_type Shr(value_type v1, value_type v2) { return Round(v1) >> Round(v2); }
 static value_type Shl(value_type v1, value_type v2) { return Round(v1) << Round(v2); }
 
+// from muParser example 1
+static int mu_IsBinValue(const char_type* a_szExpr, int* a_iPos, value_type* a_fVal)
+{
+	if (a_szExpr[0] != 0 && a_szExpr[1] != 'b')
+		return 0;
+
+	unsigned iVal = 0;
+	unsigned iBits = sizeof(iVal) * 8;
+	unsigned i = 0;
+
+	for (i = 0; (a_szExpr[i + 2] == '0' || a_szExpr[i + 2] == '1') && i < iBits; ++i)
+		iVal |= (int)(a_szExpr[i + 2] == '1') << ((iBits - 1) - i);
+
+	if (i == 0)
+		return 0;
+
+	if (i == iBits)
+		throw mu::Parser::exception_type(_T("Binary to integer conversion error (overflow)."));
+
+	*a_fVal = (unsigned)(iVal >> (iBits - i));
+	*a_iPos += i + 2;
+
+	return 1;
+}
+
+static int mu_IsHexValue(const char_type* a_szExpr, int* a_iPos, value_type* a_fVal)
+{
+	if (a_szExpr[1] == 0 || (a_szExpr[0] != '0' || a_szExpr[1] != 'x'))
+		return 0;
+
+	unsigned iVal(0);
+
+	// New code based on streams for UNICODE compliance:
+	stringstream_type::pos_type nPos(0);
+	stringstream_type ss(a_szExpr + 2);
+	ss >> std::hex >> iVal;
+	nPos = ss.tellg();
+
+	if (nPos == (stringstream_type::pos_type)0)
+		return 1;
+
+	*a_iPos += (int)(2 + nPos);
+	*a_fVal = (value_type)iVal;
+
+	return 1;
+}
+
+static value_type mu_Not(value_type v) { return v == 0; }
+static value_type mu_BitAnd(value_type v1, value_type v2) { return Round(v1) & Round(v2); }
+static value_type mu_BitOr(value_type v1, value_type v2) { return Round(v1) | Round(v2); }
+
 
 double formulaNumPolls;
 
@@ -983,6 +1034,11 @@ mu::Parser * initBaseParser() {
 	parser->DefineVar("__polls",&formulaNumPolls);
 	parser->DefineOprt(_T(">>"), Shr, prMUL_DIV + 1);
 	parser->DefineOprt(_T("<<"), Shl, prMUL_DIV + 1);
+	parser->AddValIdent(mu_IsHexValue);
+	parser->AddValIdent(mu_IsBinValue);
+	parser->DefineInfixOprt(_T("!"), mu_Not, 0, true);
+	parser->DefineOprt(_T("&"), mu_BitAnd, prBAND);
+	parser->DefineOprt(_T("|"), mu_BitOr, prBOR);
 	return parser;
 }
 
@@ -995,7 +1051,7 @@ mu::Parser * initParser() {
     char name[255];
 
     if (parser == NULL) {
-		parser = initBaseParser();
+	parser = initBaseParser();
         // add all variables using their fully qualified name (MeterName.VariableName)
         while (meter) {
             if (meter->disabled == 0) {

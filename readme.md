@@ -416,6 +416,9 @@ where the [ has to be the first character of a line. Options that can be specifi
 ```name="NameOfMeter"```
 Mandatory, name of the MeterType. The name is used in a meter definition and is case sensitive.
 
+```querydelay=x```
+Where x is the delay in MS between modbus requests for this meter. Required e.g. for the JK Inverter-BMS.
+
 ```type=holding```
 Optional, default=holding. Specifies for all following read= or registers what type of modbus function will be used for reading the data. Valid values are holding, input, coil, inputstatus or discreteinput. (inputstatus is the same as discreteinput)
 
