@@ -695,7 +695,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 				sprintf(c->url, (char *)urlFormat, c->host, c->port?c->port:8086, c->apiStr);
 				c->ch_headers = curl_slist_append(NULL,"Content-Type: text/plain; charset=utf-8");
 				curl_easy_setopt(c->ch, CURLOPT_HTTPHEADER, c->ch_headers);
-				if (showSendErr) PRINTFN("Using influxdb writer at %s",c->url);
+				/*if (showSendErr) */ PRINTFN("Using influxdb writer at %s",c->url);
 
 			} else
 			if (!c->isGrafana && c->org) {

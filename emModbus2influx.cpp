@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.34 Armin Diehl <ad@ardiehl.de> Apr 16,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.35 Armin Diehl <ad@ardiehl.de> May 24,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -449,7 +449,7 @@ int parseArgs (int argc, char **argv) {
 
 	if (doTry == 0) {
 		if (serverName) {
-			LOG(1,"Influx init: serverName: %s, port %d, dbName: %s, userName: %s, password: %s, org: %s, bucket:%s, numQueueEntries %d\n",serverName, port, dbName, userName, password, org, bucket, numQueueEntries);
+			LOG(1,"Influx init: serverName: %s, port %d, dbName: %s, userName: %s, password: %s, org: %s, bucket:%s, numQueueEntries %d, influxApiStr: %s\n",serverName, port, dbName, userName, password, org, bucket, numQueueEntries, influxApiStr);
 			iClient = influxdb_post_init (serverName, port, dbName, userName, password, org, bucket, token, numQueueEntries, influxApiStr, iVerifyPeer);
 		}
 	}
