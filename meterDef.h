@@ -96,7 +96,9 @@
 #define TK_RETURN          638
 #define TK_QUERYDELAY      639
 
-#define CHAR_TOKENS ",;()={}+-*/&%$"
+//#define CHAR_TOKENS ",;()={}+-*/&%$"
+
+#define CHAR_TOKENS ",;()={}*/&%$"
 
 #define TK_COMMA      1
 #define TK_SEMICOLON  2

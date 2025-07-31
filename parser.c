@@ -244,7 +244,7 @@ int gch (parser_t * pa) {
 	return rc;
 }
 
-// peer next char
+// peek next char
 int pchnext (parser_t * pa) {
 	gch(pa);
 	return pch(pa);
@@ -341,6 +341,7 @@ int parserGetToken (parser_t *pa) {
 
 	skipNoise(pa);
 	c = pch(pa);
+
 	if (c < 0) {
 		if (c == TK_EOL) parserGetNextLine(pa);
 		return c;
@@ -374,8 +375,8 @@ int parserGetToken (parser_t *pa) {
 			return TK_SECTION;
 		}
 	}
-
-	if (c >= '0' && c <= '9') {			// number, hex/decimal integer/float
+	
+	if ((c >= '0' && c <= '9') || c == '-') {		// number, hex/decimal integer/float
 		if (c == '0') {
 			c = pchnext(pa);
 			if (c == 'x') {				// hex starting with 0x
@@ -395,6 +396,10 @@ int parserGetToken (parser_t *pa) {
 			}
 		}
 		// float or integer
+		if (c == '-') {		// negative number
+			buf_addChar(&buf,c);
+			c = pchnext(pa);
+		}
 		while((c >= '0' && c <= '9') || c == '.') {
 			buf_addChar(&buf,c);
 			if (c == '.') isFloat++;

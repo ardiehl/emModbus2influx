@@ -30,7 +30,7 @@ void log_fprintfn(FILE *stream, int priority, const char *format, ...);
 
 #define VPRINTF(LEVEL, FORMAT, ...) if (log_verbosity >= LEVEL) log_fprintf(stdout, LOG_INFO, FORMAT, ##__VA_ARGS__)
 #define VPRINTFN(LEVEL, FORMAT, ...) if (log_verbosity >= LEVEL) log_fprintfn(stdout, LOG_INFO, FORMAT, ##__VA_ARGS__)
-#define PRINTF(FORMAT, ...) if (log_verbosity >= 0) log_fprintf(stdout, LOG_INFO, FORMAT, ##__VA_ARGS__)
+#define PRINTF(FORMAT, ...) log_fprintf(stdout, LOG_INFO, FORMAT, ##__VA_ARGS__)
 #define PRINTFN(FORMAT, ...) log_fprintfn(stdout, LOG_INFO, FORMAT, ##__VA_ARGS__)
 #define EPRINTF(FORMAT, ...)  log_fprintf(stderr, LOG_ERR, FORMAT, ##__VA_ARGS__)
 #define EPRINTFN(FORMAT, ...) log_fprintfn(stderr, LOG_ERR, FORMAT, ##__VA_ARGS__)

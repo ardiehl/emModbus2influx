@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.35 Armin Diehl <ad@ardiehl.de> May 24,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.36 Armin Diehl <ad@ardiehl.de> Jul 31,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1095,6 +1095,7 @@ int main(int argc, char *argv[]) {
 	uint64_t influxTimestamp;
 	struct timespec timeStart, timeEnd;
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
+	int isFirstRealQuery = 0;
 	double queryTime;
 	int numMeters;
 
@@ -1335,13 +1336,11 @@ int main(int argc, char *argv[]) {
 #ifndef DISABLE_FORMULAS
 	formulaNumPolls++;
 #endif
-	if (dryrun || (verbose>0))
-			printf("Initial query took %4.2f seconds\n",queryTime);
 	if (rc <= 0) {
-			terminated++;
-			EPRINTFN("Initial query: no meters could be queried");
+		terminated++;
+		EPRINTFN("Initial query: no meters could be queried, terminating");
 	} else {
-		PRINTFN("Initial query: %d meters",rc);
+		PRINTFN("Performed initial query for %d meters in %4.2f seconds",rc,queryTime);
 	}
 
 	meter=meters;
@@ -1372,8 +1371,8 @@ int main(int argc, char *argv[]) {
 			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 			loopCount++;
 			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
-			if (dryrun || (verbose>0))
-				printf("Query %d took %4.2f seconds\n",loopCount,queryTime);
+			if (dryrun || (verbose>0) || isFirstRealQuery)
+				PRINTFN("Query %d took %4.2f seconds",loopCount,queryTime);
 
 			if (iClient) {		// influx
 				influxdb_post_freeBuffer(iClient);
@@ -1457,7 +1456,16 @@ int main(int argc, char *argv[]) {
 			} else {
 				if (verbose) printf("\n");
 			}
-			if (isFirstQuery) isFirstQuery--;
+			clock_gettime(CLOCK_MONOTONIC,&timeEnd);
+			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
+			if (dryrun || (verbose>0) || isFirstRealQuery)
+				PRINTFN("Total processing time of query %d was %4.2f seconds",loopCount,queryTime);
+
+			if (isFirstQuery) {
+				isFirstQuery--;
+				isFirstRealQuery++;
+			} else
+				isFirstRealQuery = 0;
 		}
 
 	}

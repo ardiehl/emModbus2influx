@@ -605,9 +605,9 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 		c->ch = curl_easy_init();
 		assert(c->ch != NULL);
 		if (! c->ssl_verifypeer) {
-			res = curl_easy_setopt(c->ch, CURLOPT_SSL_VERIFYPEER, 0);
+			res = curl_easy_setopt(c->ch, CURLOPT_SSL_VERIFYPEER, 0L);
 			if (res) EPRINTFN("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER) for '%s' failed with %d (%s)",c->host,res,curl_easy_strerror(res));
-			res = curl_easy_setopt(c->ch, CURLOPT_SSL_VERIFYHOST, 0);
+			res = curl_easy_setopt(c->ch, CURLOPT_SSL_VERIFYHOST, 0L);
 			if (res) EPRINTFN("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER) for '%s' failed with %d (%s)",c->host,res,curl_easy_strerror(res));
 		}
 		//printf("CURLOPT_SSL_VERIFYPEER, %d, rc: %d\n",c->ssl_verifypeer,res);
@@ -648,7 +648,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 						curl_easy_cleanup(c->ch); c->ch = NULL;
 						return res;
 					};
-					res = curl_easy_setopt(c->ch, CURLOPT_CONNECT_ONLY, 2);
+					res = curl_easy_setopt(c->ch, CURLOPT_CONNECT_ONLY, 2L);
 					if (res) {
 						EPRINTFN("curl_easy_setopt(CURLOPT_CONNECT_ONLY) for '%s' failed with %d (%s)",c->url,res,curl_easy_strerror(res));
 						curl_slist_free_all(c->ch);
@@ -695,7 +695,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 				sprintf(c->url, (char *)urlFormat, c->host, c->port?c->port:8086, c->apiStr);
 				c->ch_headers = curl_slist_append(NULL,"Content-Type: text/plain; charset=utf-8");
 				curl_easy_setopt(c->ch, CURLOPT_HTTPHEADER, c->ch_headers);
-				/*if (showSendErr) */ PRINTFN("Using influxdb writer at %s",c->url);
+				/*if (showSendErr) */ PRINTFN("Using influxdb line protocol writer at %s",c->url);
 
 			} else
 			if (!c->isGrafana && c->org) {
@@ -741,7 +741,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 			}
 		}
 		curl_easy_setopt(c->ch, CURLOPT_URL, c->url);
-		curl_easy_setopt(c->ch, CURLOPT_PORT, c->port);
+		curl_easy_setopt(c->ch, CURLOPT_PORT, (long)c->port);
 	}
 
 	if (c->isWebsocket) {
@@ -756,9 +756,9 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 		if (!len) return 0;		// only to answer ping from server
 
 		while (len) {
-			curl_easy_setopt(c->ch,CURLOPT_VERBOSE, 1);
+			curl_easy_setopt(c->ch,CURLOPT_VERBOSE, 1L);
 			res = curl_ws_send(c->ch, buf, len, &sent, 0, CURLWS_TEXT);
-			curl_easy_setopt(c->ch,CURLOPT_VERBOSE, 0);
+			curl_easy_setopt(c->ch,CURLOPT_VERBOSE, 0L);
 			if (res) {
 				if (showSendErr) EPRINTFN("curl_ws_send to \"%s\" failed with %d (%s), closing connection",c->url,res,curl_easy_strerror(res));
 				curl_easy_cleanup(c->ch);
@@ -773,7 +773,7 @@ int post_http_send_line(influx_client_t *c, char *buf, int len, int showSendErr)
 	} else {
 		if (len <= 0) return 0;
 		/* Set size of the POST data */
-		curl_easy_setopt(c->ch, CURLOPT_POSTFIELDSIZE, len);
+		curl_easy_setopt(c->ch, CURLOPT_POSTFIELDSIZE, (long)len);
 
 		//printf("Buf:'%s'\n",buf);
 		/* Pass in a pointer of data - libcurl will not copy */

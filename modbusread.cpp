@@ -1155,7 +1155,7 @@ int executeMeterTypeFormulas(int verboseMsg, meter_t *meter) {
                 VPRINTF(2,"MeterType formula for %s: \"%s\" -> %10.2f\n",meter->name,registerRead->registerDef->formula,registerRead->fvalue);
             }
             catch (mu::Parser::exception_type &e) {
-                EPRINTFN("%d.%d error evaluating meter type formula (%s), setting value to 0",meter->name,registerRead->registerDef->name,e.GetMsg().c_str());
+                EPRINTFN("%s.%s error evaluating meter type formula (%s) ,%s ,setting result value to 0",meter->name,registerRead->registerDef->name,registerRead->registerDef->formula,e.GetMsg().c_str());
                 registerRead->fvalue = 0;
             }
         }
@@ -1617,7 +1617,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			}
 			// check and get the values that are in the range
 			meterRegisterRead = meter->registerRead;
-			
+
 			while (meterRegisterRead) {
 				// resolve sunspec scaling factor
 				if (meterRegisterRead->registerDef->sunspecSfRegister && meterRegisterRead->sunspecSf == 0) {

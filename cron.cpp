@@ -110,6 +110,7 @@ void cron_meter_add_byName(char * cronName, meter_t *meter) {
 		cron_meter_add(cd, meter);
 		return;
 	}
+	if (meter->disabled) return;
 	EPRINTFN("cron name \"%s\" not defined",cronName);
 	exit(1);
 }
