@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.36 Armin Diehl <ad@ardiehl.de> Jul 31,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.37 Armin Diehl <ad@ardiehl.de> Sept 9,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 

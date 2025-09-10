@@ -120,7 +120,7 @@ int cron_write_add(char *cronName, meterWrites_t * mw) {
 	cronDef_t * cronDef = cronTab;
 	cronDef_t * cd = NULL;
 
-	//printf("cron_write_add (%s,%s)\n",cronName,mw->name);
+	//EPRINTFN("cron_write_add (%s,%s)",cronName,mw->name);
 
 	while (cronDef && (cd == NULL)) {
 		if (cronDef->name == cronName) cd = cronDef;	// for default name==NULL
@@ -135,16 +135,16 @@ int cron_write_add(char *cronName, meterWrites_t * mw) {
 		if (!cd->memberWrites) {
 			cd->memberWrites = mw;
 			if (cd->name) mw->hasSchedule++;	// not for default schedule
-			return 0;
+			return 1;
 		}
 		meterWrites_t * mW = cd->memberWrites;
 		while (mW->next) mW = mW->next;
 		mW->next = mw;
 		if (cd->name) mw->hasSchedule++;	// not for default schedule
-		return 0;
+		return 1;
 	}
 	//EPRINTFN("cron name \"%s\" not defined",cronName);
-	return 1;
+	return 0;
 }
 
 
@@ -164,6 +164,7 @@ int parseCron (parser_t * pa) {
             case TK_STRVAL:
 				st = strdup(pa->strVal);
 				parserExpectEqual(pa,TK_STRVAL);
+				VPRINTFN(9,"adding schedule %s (%s)",st,pa->strVal);
 				cron_add(st,pa->strVal);
 				free(st);
 				break;
@@ -565,12 +566,14 @@ int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)()) {
 
 	// meter writes
 	cd = cronTab;
-	mw = cd->memberWrites;
-	while (mw) {
-		if (mw->isDue) execMeterWrite(mw, dryrun);
-		mw = mw->next;
+	while (cd) {
+		mw = cd->memberWrites;
+		while (mw) {
+			if (mw->isDue) execMeterWrite(mw, dryrun);
+			mw = mw->next;
+		}
+		cd = cd->next;
 	}
-
 	return numMeters;
 }
 
@@ -622,7 +625,7 @@ void cron_setDefault() {
 	// meter writes
 	meterWrites_t * mw = meterWrites;
 	while (mw) {
-		printf("meter write %s\n",mw->name);
+		//printf("meter write %s\n",mw->name);
 		mw = mw->next;
 	}
 	mw = meterWrites;

@@ -676,7 +676,7 @@ int getRegisterValue (meterRegisterRead_t *rr, uint16_t *buf, int sunspecOffset,
 
 extern int showModbusRetries;
 
-int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int numRegisters, uint16_t **buf) {
+int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int numRegisters, uint16_t *buf) {
 	errno = 0;
 	int res;
 	char mbFunction[30];
@@ -685,11 +685,11 @@ int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int nu
 
 	switch (regType) {
 		case regTypeHolding:
-			res = modbus_read_registers(*meter->mb, startAddr, numRegisters, *buf);  // holding registers
+			res = modbus_read_registers(*meter->mb, startAddr, numRegisters, buf);  // holding registers
 			strcpy(mbFunction,"modbus_read_registers");
 			break;
 		case regTypeInput:
-			res = modbus_read_input_registers(*meter->mb, startAddr, numRegisters, *buf);
+			res = modbus_read_input_registers(*meter->mb, startAddr, numRegisters, buf);
 			strcpy(mbFunction,"modbus_read_input_registers");
 			VPRINTFN(4,"%s: modbus_read_input_registers (mb,%d,%d) returned %d",meter->name,startAddr,numRegisters,res);
 			break;
@@ -703,7 +703,8 @@ int execMbReadFunction (meter_t *meter, regType_t regType, int startAddr, int nu
 				res = modbus_read_input_bits(*meter->mb, startAddr, numRegisters, bbuf);
 				strcpy(mbFunction,"modbus_read_input_bits");
 			}
-			for (int i=0;i<numRegisters;i++) *buf[i] = bbuf[i];
+			// convert the returned uint8_t array to uint16_t
+			for (int i=0;i<numRegisters;i++) buf[i] = bbuf[i];
 			free(bbuf);
 			break;
 		}
@@ -740,7 +741,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			free(*buf); *buf = NULL;
 			return -1;
 	}
-	res = execMbReadFunction(meter, regType, startAddr, numRegisters, buf);
+	res = execMbReadFunction(meter, regType, startAddr, numRegisters, *buf);
 
     if (res < 0) {
 		clock_gettime(CLOCK_MONOTONIC,&timeEnd);
@@ -762,7 +763,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			modbus_flush(*meter->mb);
 			msleep(retryDelayMS);
 			//modbus_flush(*meter->mb);
-			res = execMbReadFunction(meter, regType, startAddr, numRegisters, buf);
+			res = execMbReadFunction(meter, regType, startAddr, numRegisters, *buf);
 			retryCount--;
 			retryDelayMS += READ_RETRY_DELAY_INCMS;
 			retryCounts++;
@@ -1226,7 +1227,7 @@ void listVariables(mu::Parser *parser) {
             *p = '\0';
             meter = findMeter(name);
             if (meter) {
-                printf("  type: '%s'",meter->meterType->name);
+				if (meter->meterType) printf("  MeterType: '%s'",meter->meterType->name);
             }
         }
         free(name);
@@ -2194,7 +2195,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 					rr = rr->next;
 				}
 				if (setDone) {
-					VPRINTFN(3,"  %s.%s (%s): wrote %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
+					VPRINTFN(1,"  %s.%s (%s): wrote %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
 				} else
 					EPRINTFN("  %s.%s (%s): unable to write %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
 			} else
@@ -2231,7 +2232,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 					if (rc != numRegisters) {
 						EPRINTFN("%s: execMeterWrite (%s): modbus_write_register%s returned %d, expected %d, errno: %d (%s)",mw->meter->name,mw->name,s,rc,numRegisters,errno,modbus_strerror(errno));
 					} else
-						VPRINTFN(3,"  %s.%s (%s): wrote %d register(s) at address %d with value %f",mw->meter->name,w->reg->name,mw->name,numRegisters,w->reg->startAddr,val);
+						VPRINTFN(1,"  %s.%s (%s): wrote %d register(s) at address %d with value %f",mw->meter->name,w->reg->name,mw->name,numRegisters,w->reg->startAddr,val);
 				}
 			} else
 			if (w->reg->regType == regTypeCoil) {
@@ -2242,7 +2243,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 					if (rc != 1) {
 						EPRINTFN("%s: execMeterWrite (%s.%s): modbus_write_bit returned %d, expected 1, errno: %d (%s)",mw->meter->name,w->reg->name,mw->name,rc,errno,modbus_strerror(errno));
 					} else
-						VPRINTFN(3,"  %s (%s): wrote coil at address %d with value %f [ %d]",mw->meter->name,mw->name,w->reg->startAddr,val,val > 0 ? 1 : 0);
+						VPRINTFN(1,"  %s (%s): wrote coil at address %d with value %f [ %d]",mw->meter->name,mw->name,w->reg->startAddr,val,val > 0 ? 1 : 0);
 				}
 			} else
 				EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
