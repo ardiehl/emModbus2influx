@@ -677,7 +677,7 @@ disabled=0
 "u1_avg"="(Grid.u1+Grid.u2+Grid.u3)/3",dec=2,influx=1,mqtt=1
 ```
 # Meter writes
-Writing to modbus registers or coils can be scheduled or performed on each query. A write definition can perform multiple register / coil writes for one modbus device. The write definition can have a formula as a condition that will skip all registers in the definition. In addition, each register write definition can have a condition as well. Target for writes can be a meter formula as well.
+Writing to modbus registers or coils can be scheduled or performed on each query. A write definition can perform multiple register / coil writes for one modbus device. The write definition can have a formula as a condition that will skip all registers in the definition. In addition, each register write definition can have a condition as well. Target for writes can be a variables of a meter formula as well.
 
 ```[Writes]```
 
@@ -693,7 +693,7 @@ Mandatory, name of the write definition, used in debug / verbose outputs only.
 
 ```cond="formula"```
 
-Overall condition formula for thiese writes. If result is <= 0, none of the write definitions within this [Writes] will be performed.
+Overall condition formula for these writes. If result is <= 0, none of the write definitions within this [Writes] will be performed.
 
 ```schedule="```
 
@@ -711,6 +711,43 @@ Mandatory, name of the defined meter (modbus device) to write to.
 
 Unlimited number of write statements. RegName needs to be defined in the meter definition (via the meter type) and specifies the modbus register(s) and types. The value to write can be an integer, a float or a bit (>0 equals true) for a coil. An optional condition formula can be appended to avoid that single write (>0 will perform the write).
 If return is given, no further write statements will be executed in case the write has been performed.
+
+## Example
+```
+[Schedule]
+"s_Logo" = "0 */30 * * * *"     # query and perfoerm writes every 30 minutes
+
+# Siemens Logo for switching heat pump between solar and grid powered
+[MeterType]
+name = "Logo_HP"
+measurement="logo"
+type = coil
+read = 0,4
+"requestSolar"     = 0,influx=0,grafana=0,mqtt=0        # write only, 1=request solar
+"requestHP"        = 1,influx=0,grafana=0,mqtt=0        # write only
+"Status"           = 2,influx=1,grafana=1,mqtt=0        # 1=Solar, 0=HP
+"EVUSperre"        = 3,influx=0,grafana=0,mqtt=0        # read only
+
+[Meter]
+type = "Logo_HP"
+name = "logo"
+address=255
+hostname="logo2.armin.d"
+schedule="s_Logo"
+
+[Write]
+name="LogoUpdate"
+schedule="s_Logo"
+meter="logo"
+# always on solar if SOC (from Lynx Shunt) is > 80%
+write="requestSolar",1,cond="Battery.SOC > 80",return
+
+# leave it on solar until 50% SOC
+write="requestSolar",1,cond="Battery.SOC > 50 && logo.Status == 1",return
+
+# otherwise switch to grid
+write="requestHP",1
+```
 
 # Getting started
 ## Test connectivity to InfluxDB and/or MQTT
@@ -756,6 +793,8 @@ You can now run emModbus2influx with --dryrun or --dryrun=count to see what woul
 ## Define Modbus device
 You need to know what Registers are available as well as the address and type of the register.
 See the included emModbus2influx.conf for samples of several devices.
+
+
 
 
 
