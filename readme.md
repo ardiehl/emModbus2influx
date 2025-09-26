@@ -485,6 +485,9 @@ Defines register values sent for initialization. Value is the same as for settar
 ```modbusdebug=1```
 Enables libmodbus debug output for this meter.
 
+```closeafterquery=1```
+Closes the connection to a TCP meter after each query. This may be needed for devices that supports only one TCP connection (e.g. Siemens Logo) and the device must be queried by multiple masters.
+
 ### Register definitions within MeterTypes
 for each register,
 ```"RegisterName"=startRegisterNumber_or_SunspecOffset```
@@ -792,7 +795,8 @@ Adjust your InfluxDB and/or MQTT server parameters. For InfluxDB 1.x you need da
 You can now run emModbus2influx with --dryrun or --dryrun=count to see what would be posted to mqtt and/or influxDB and without --dryrun to post test data to your InfluxDB and/or MQTT.
 ## Define Modbus device
 You need to know what Registers are available as well as the address and type of the register.
-See the included emModbus2influx.conf for samples of several devices.
+See the included emModbus2influx.conf for samples of several devices. This is my config that queries my Heatpump, Siemens Logo as well as the Victron System via TCP and Energy Meters, Heat Meters and my JK-NMS via Modbus RTU.
+
 
 
 

@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.37 Armin Diehl <ad@ardiehl.de> Sept 9,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.38 Armin Diehl <ad@ardiehl.de> Sept 25,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -81,6 +81,7 @@ int scanRTUReg;
 int modbusDebug;
 influx_client_t *iClient;
 int showModbusRetries;
+int ModbusRTU_exitErrorCount = 5;
 
 #ifndef DISABLE_MQTT
 mqtt_pubT *mClient;
@@ -139,7 +140,7 @@ void scanAddresses() {
 	if (scanHost) {
 		ctx = modbus_new_tcp_pi(scanHost, scanPort);
 	} else {
-		ctx = *modbusRTU_getmh(0);
+		ctx = *modbusRTU_getmh(0,"scanAddresses");
 		isSerial++;
 	}
 	modbus_set_debug(ctx,modbusDebug);
@@ -371,6 +372,9 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (0,'P',"poll"           ,&queryIntervalSecs    ,"poll intervall in seconds")
 		AP_OPT_STRVAL       (0, 'H',"cron"          ,&cronExpression       ,"Crontab style expression like Sec Min Hour Day Mon Wday")
 		AP_OPT_INTVALF      (0, 0 ,"no-threads"     ,&disableThreadedQuery  ,"enable threaded query (one thread for each serial port and one for tcp)")
+
+		AP_OPT_INTVAL       (1,0  ,"maxrtuerrs"     ,&ModbusRTU_exitErrorCount,"exit if all meters on a serial port failed n times")
+
 		AP_OPT_INTVALF      (0,'y',"syslog"         ,&syslog               ,"log to syslog insead of stderr")
 		AP_OPT_INTVALF_CB   (0,'Y',"syslogtest"     ,NULL                  ,"send a testtext to syslog and exit",&syslogTestCallback)
 		AP_OPT_INTVALF_CB   (0,'e',"version"        ,NULL                  ,"show version and exit",&showVersionCallback)
@@ -1163,7 +1167,7 @@ int main(int argc, char *argv[]) {
 			EPRINTFN("scanrtu: no serial port specified");
 			exit(1);
 		}
-		modbus_t ** mb = modbusRTU_getmh(0);
+		modbus_t ** mb = modbusRTU_getmh(0,"scan for RTU devices");
 		uint16_t regValue;
 		printf("scanning for modbus RTU devices\n");
 		for (i=1;i<254;i++) {
@@ -1373,6 +1377,8 @@ int main(int argc, char *argv[]) {
 			queryTime = (double)(timeEnd.tv_sec + timeEnd.tv_nsec / NANO_PER_SEC)-(double)(timeStart.tv_sec + timeStart.tv_nsec / NANO_PER_SEC);
 			if (dryrun || (verbose>0) || isFirstRealQuery)
 				PRINTFN("Query %d took %4.2f seconds",loopCount,queryTime);
+
+			modbusRTU_checkDeviceErrors (ModbusRTU_exitErrorCount);
 
 			if (iClient) {		// influx
 				influxdb_post_freeBuffer(iClient);

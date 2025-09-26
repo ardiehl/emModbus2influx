@@ -462,10 +462,10 @@ int meterSerialGetNumDevices() {
 
 
 
-modbus_t ** modbusRTU_getmh(int serialPortNum) {
+modbus_t ** modbusRTU_getmh(int serialPortNum, const char * neededFor) {
 	meterSerialConnection_t *sc = meterSerialConnections;
 	if (! sc) {
-		EPRINTFN("modbusRTU_getmh(): no serial ports defined");
+		EPRINTFN("modbusRTU_getmh(): no serial ports defined, port number %d needed for %s",serialPortNum,neededFor);
 		exit(3);
 	}
 	int n = 0;
@@ -473,7 +473,7 @@ modbus_t ** modbusRTU_getmh(int serialPortNum) {
 		//printf("%d: %s\n",n,sc->device);
 		if (serialPortNum == n) {
 			if (! meterSerialConnections->isConnected) {
-				EPRINTFN("modbusRTU_getmh(): Serial%d not defined",serialPortNum);
+				EPRINTFN("modbusRTU_getmh(): Serial %d not defined, needed for %s",serialPortNum,neededFor);
 				exit(3);
 			}
 			return &sc->mb;
@@ -481,7 +481,7 @@ modbus_t ** modbusRTU_getmh(int serialPortNum) {
 		n++;
 		sc = sc->next;
 	}
-	EPRINTFN("modbusRTU_getmh(): Serial%d not specified",serialPortNum);
+	EPRINTFN("modbusRTU_getmh(): Serial %d not specified, needed for %s",serialPortNum,neededFor);
 	exit(3);
 }
 
@@ -533,6 +533,36 @@ void modbusRTU_SilentDelay(int baudrate) {
     }
     //printf("modbusRTU_SilentDelay %d ms\n",delay);
     msleep(delay);
+}
+
+// check if all meters on a serial port failed at least exitErrorCount times, if so, exit
+void modbusRTU_checkDeviceErrors (int exitErrorCount) {
+	meter_t *meter;
+	meterSerialConnection_t *sc = meterSerialConnections;
+
+	while (sc) {
+		meter = meters;
+		int numMeters = 0;
+		int maxQueryErrorCount = 0;
+		int numMetersWithQueryError = 0;
+		while (meter) {
+			if (meter->isSerial && ! meter->disabled) {
+				numMeters++;
+				if (meter->queryErrorCount) {
+					numMetersWithQueryError++;
+					if (meter->queryErrorCount>maxQueryErrorCount) maxQueryErrorCount = meter->queryErrorCount;
+				}
+			}
+			meter = meter->next;
+		}
+		if (numMetersWithQueryError > 0 && numMetersWithQueryError == numMeters) {	// all meters on serial port failed
+			if (numMetersWithQueryError >= exitErrorCount) {
+				EPRINTFN("Query of all %d meters on serial %s failed %d times, assuming a problem with the serial devce, terminating",numMeters,sc->device,exitErrorCount);
+				exit (200);
+			}
+		}
+		sc = sc->next;
+	}
 }
 
 void dumpBuffer (const uint16_t *data,int numValues) {
@@ -778,8 +808,8 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
     if(res < 0) {
         free(*buf); *buf = NULL;
 		if ((meter->isSerial) && (errno = EIO)) {
-			EPRINTFN("EIO on serial meter \"%s\", assuming serial port disconnected, terminating",meter->name);
-			exit(1);	// port may be unplugged, reconnect on restart via systemd or script
+			EPRINTFN("EIO on serial meter \"%s\"",meter->name);
+			//exit(1);	// port may be unplugged, reconnect on restart via systemd or script
 		}
         return -1;
     }
@@ -1512,7 +1542,8 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	meter->meterHasBeenRead = 0;
 
 	if (meter->disabled) return 0;
-	if (!meter->meterType) {
+
+		if (!meter->meterType) {
 		meter->meterHasBeenRead = 1;
 		return 0;		// virtual meter with formulas only
 	}
@@ -1589,7 +1620,10 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     res = modbus_write_registers(*meter->mb,mi->startAddr+sunspecOffset,mi->numWords,mi->buf);
                 if (res < 0) {
                     EPRINTFN("%s: init failed (write of %d registers starting at address %d (%d: %s)",meter->name,mi->numWords,mi->startAddr+sunspecOffset,res,modbus_strerror(errno));
-                    exit(1);
+                    meter->queryErrorCount++;
+                    if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
+						modbusTCP_close (meter->hostname,meter->port);
+                    return -1;
                 }
                 count++;
             }
@@ -1650,11 +1684,9 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d, errno:%d (%s)",meter->meterType->name,numRegisters,regStart,res,errno,modbus_strerror(errno));
 			if (meter->isTCP)
 				modbusTCP_close (meter->hostname,meter->port);
-			//if (res < -1) {
 			meter->numErrs++;
+			meter->queryErrorCount++;
 			return res;  // for TCP open retry
-			//}
-
 		}
 		meterReads = meterReads->next;
 	}
@@ -1670,7 +1702,8 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                 if (readRegisters (meter, regTypeSunspec, reg, 1, &buf) != 0) {
                     EPRINTFN("%s: readRegisters for sunspec scaling factor %s, register %d failed",meter->name,meterRegisterRead->registerDef->name,reg);
                     meter->numErrs++;
-                    exit(1);
+                    meter->queryErrorCount++;
+                    return -1;
                 }
                 meterRegisterRead->sunspecSf = (int16_t)buf[0];
                 VPRINTFN(2,"%s (%s): Warning: sunspec scaling factor register %d (%d) not included in read or readid blocks, sf=%d",meter->name,meterRegisterRead->registerDef->name,meterRegisterRead->registerDef->sunspecSfRegister,reg,meterRegisterRead->sunspecSf);
@@ -1685,6 +1718,9 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     if (getRegisterValue (meterRegisterRead, buf, 0, regStart, regEnd) != 0) {
                         EPRINTF("%s: getRegisterValue for %s failed with %d",meter->name,meterRegisterRead->registerDef->name);
                         meter->numErrs++;
+                        meter->queryErrorCount++;
+                        if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
+							modbusTCP_close (meter->hostname,meter->port);
                         return res;
                     }
                     if (verbose > 3) {
@@ -1695,7 +1731,10 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     free(buf); buf = NULL;
                 } else {
                 	meter->numErrs++;
+                	meter->queryErrorCount++;
                 	VPRINTFN(1,"%s (%s): readRegisters (%d (0x%04x),%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regStart,regEnd,modbus_strerror(errno));
+                	if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
+						modbusTCP_close (meter->hostname,meter->port);
                     return res;
                 }
             } else
@@ -1703,6 +1742,8 @@ int queryMeter(int verboseMsg, meter_t *meter) {
         }
         meterRegisterRead = meterRegisterRead->next;
 	}
+	if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
+		modbusTCP_close (meter->hostname,meter->port);
 
 #ifndef DISABLE_FORMULAS
 	// local formulas
@@ -1727,6 +1768,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 
 	// mark complete
 	meter->meterHasBeenRead = 1;
+	meter->queryErrorCount = 0;
 
 	clock_gettime(CLOCK_MONOTONIC,&timeEnd);
 	meter->queryTimeNano = ((timeEnd.tv_sec - timeStart.tv_sec) * NANO_PER_SEC) + (timeEnd.tv_nsec - timeStart.tv_nsec);
@@ -2125,7 +2167,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 	if (mw->meter->isTCP) {
 		mw->meter->mb = modbusTCP_open (mw->meter->hostname,mw->meter->port);	// get it from the pool or create/open if not already in list of connections
 		if(mw->meter->mb == NULL) {
-			//WPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",meter->name,meter->hostname,meter->port ? meter->port : defPort,errno,modbus_strerror(errno));
+			EPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",mw->meter->name,mw->meter->hostname,mw->meter->port ? mw->meter->port : defPort,errno,modbus_strerror(errno));
 			mw->meter->numErrs++;
 			return;
 		}
@@ -2247,11 +2289,18 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 				}
 			} else
 				EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
-			if (w->returnOnWrite) return;
+			if (w->returnOnWrite) {
+				EPRINTFN("end execMeterWrite %s return",mw->meter->name);
+				if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
+					modbusTCP_close (mw->meter->hostname,mw->meter->port);
+				return;
+			}
 		} else {
 			VPRINTFN(3,"  write condition for %s.%s.%s (%s) not met, skipping meter write",mw->meter->name,mw->name,w->reg->name,mw->conditionFormula);
 
 		}
 		w = w->next;
 	}
+	if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
+		modbusTCP_close (mw->meter->hostname,mw->meter->port);
 }

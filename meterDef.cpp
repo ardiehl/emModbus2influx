@@ -616,6 +616,10 @@ int parseMeterType (parser_t * pa) {
 					mr->next = meterRegister;
 				} else meterType->meterRegisters = meterRegister;
 				break;
+			case TK_CLOSEAFTERQUERY:
+				parserExpectEqual(pa,TK_INTVAL);
+				meterType->tcpCloseAfterQuery = pa->iVal;
+				break;
 
 			default:
 				snprintf(errMsg,sizeof(errMsg),"unexpected input, expected identifier or string but got %s",parserGetTokenTxt(pa,tk));
@@ -1317,6 +1321,7 @@ int readMeterDefinitions (const char * configFileName) {
 		"condition"       ,TK_COND,
 		"return"          ,TK_RETURN,
 		"querydelay"      ,TK_QUERYDELAY,
+		"closeafterquery" ,TK_CLOSEAFTERQUERY,
 		NULL);
 	rc = parserBegin (pa, configFileName, 1);
 	if (rc != 0) {
@@ -1358,7 +1363,7 @@ int readMeterDefinitions (const char * configFileName) {
 			} else {	// modbus RTU
 				if (meter->isSerial) {
 					VPRINTFN(8,"getting serial port for \"%s\"",meter->name);
-					meter->mb = modbusRTU_getmh(meter->serialPortNum);
+					meter->mb = modbusRTU_getmh(meter->serialPortNum,meter->name);
 					if (*meter->mb == NULL) {
 						EPRINTFN("%s: serial modbus not yet opened or no serial device specified",meter->name);
 						exit(1);

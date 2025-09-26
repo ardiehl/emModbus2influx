@@ -10,6 +10,9 @@
 
 int msleep(long msec);
 
+// check if all meters on a serial port failed at least exitErrorCount times, if so, exit
+void modbusRTU_checkDeviceErrors (int exitErrorCount);
+
 // multiple devices can be separated by ,
 // first device is number 0 and is the default device
 int meterSerialScanDevice (char * deviceString);
@@ -21,7 +24,7 @@ int meterSerialOpenAll ();
 void meterSerialCloseAll ();
 int meterSerialGetNumDevices();
 
-modbus_t ** modbusRTU_getmh(int serialPortNum);
+modbus_t ** modbusRTU_getmh(int serialPortNum, const char * neededFor);
 int modbusRTU_getBaudrate(int serialPortNum);
 // delay between queries, the Modbus RTU standard describes a silent period corresponding to 3.5 characters between each message
 void modbusRTU_SilentDelay(int baudrate);

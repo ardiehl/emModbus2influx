@@ -95,6 +95,7 @@
 #define TK_COND            637
 #define TK_RETURN          638
 #define TK_QUERYDELAY      639
+#define TK_CLOSEAFTERQUERY 640
 
 //#define CHAR_TOKENS ",;()={}+-*/&%$"
 
@@ -199,6 +200,7 @@ struct meterType_t {
 	char * influxMeasurement;
 	int influxWriteMult;
 	int modbusQueryDelayMs;
+	int tcpCloseAfterQuery;		// needed for Siemens Logo in case of multiple clients as only one TCP connection is supported by Logo (Stupid)
 };
 
 
@@ -290,6 +292,7 @@ struct meter_t {
 	unsigned int numInfluxWrites;
 	unsigned int numMqttWrites;
 	unsigned int numGrafanaWrites;
+	int queryErrorCount;
 };
 
 
