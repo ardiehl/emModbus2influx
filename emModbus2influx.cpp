@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.38 Armin Diehl <ad@ardiehl.de> Sept 25,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.39 Armin Diehl <ad@ardiehl.de> Oct 1,2025 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1087,9 +1087,9 @@ void periodicProc() {
 	//pcount++;
 	//printf("periodicProc %d\n",pcount);
 	if (gClient)
-		if (gClient->influxBufLen == 0) influxdb_post_http(gClient);
+		if (gClient->influxBufLen == 0 && gClient->url) influxdb_post_http(gClient);
 	if (iClient)
-		if (iClient->influxBufLen == 0) influxdb_post_http(iClient);
+		if (iClient->influxBufLen == 0 && iClient->url) influxdb_post_http(iClient);
 }
 
 

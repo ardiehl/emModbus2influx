@@ -539,16 +539,17 @@ void modbusRTU_SilentDelay(int baudrate) {
 void modbusRTU_checkDeviceErrors (int exitErrorCount) {
 	meter_t *meter;
 	meterSerialConnection_t *sc = meterSerialConnections;
-
+	int serialPortNo = 0;
 	while (sc) {
 		meter = meters;
 		int numMeters = 0;
 		int maxQueryErrorCount = 0;
 		int numMetersWithQueryError = 0;
 		while (meter) {
-			if (meter->isSerial && ! meter->disabled) {
+			if (meter->isSerial && ! meter->disabled && serialPortNo == meter->serialPortNum) {
 				numMeters++;
 				if (meter->queryErrorCount) {
+					//EPRINTFN("%s: queryErrorCount %d",meter->name,meter->queryErrorCount);
 					numMetersWithQueryError++;
 					if (meter->queryErrorCount>maxQueryErrorCount) maxQueryErrorCount = meter->queryErrorCount;
 				}
@@ -556,12 +557,13 @@ void modbusRTU_checkDeviceErrors (int exitErrorCount) {
 			meter = meter->next;
 		}
 		if (numMetersWithQueryError > 0 && numMetersWithQueryError == numMeters) {	// all meters on serial port failed
-			if (numMetersWithQueryError >= exitErrorCount) {
-				EPRINTFN("Query of all %d meters on serial %s failed %d times, assuming a problem with the serial devce, terminating",numMeters,sc->device,exitErrorCount);
+			if (maxQueryErrorCount >= exitErrorCount) {
+				EPRINTFN("Query of all meters (%d) on serial %s failed %d times, assuming a problem with the serial devce, terminating",numMeters,sc->device,exitErrorCount);
 				exit (200);
 			}
 		}
 		sc = sc->next;
+		serialPortNo++;
 	}
 }
 
@@ -1681,10 +1683,10 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 				if (blockUsed == 0) printf("  --> Block from %d to %d is useless\n",regStart,regEnd);
 			free(buf); buf = NULL;
 		} else {
-			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d, errno:%d (%s)",meter->meterType->name,numRegisters,regStart,res,errno,modbus_strerror(errno));
+			meter->numErrs++;
+			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d, errno:%d (%s), numErrs: %d",meter->meterType->name,numRegisters,regStart,res,errno,modbus_strerror(errno),meter->numErrs);
 			if (meter->isTCP)
 				modbusTCP_close (meter->hostname,meter->port);
-			meter->numErrs++;
 			meter->queryErrorCount++;
 			return res;  // for TCP open retry
 		}
