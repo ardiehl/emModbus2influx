@@ -704,9 +704,7 @@ int parseMeter (parser_t * pa) {
 				parserExpectEqual(pa,TK_STRVAL);
 				cron_meter_add_byName(pa->strVal,meter);
 				tk = parserGetToken(pa);
-				printf("tk os %d\n",tk);
 				while (tk == TK_COMMA) {
-				printf("TK is comma\n");
 					parserExpect(pa,TK_STRVAL);
 					cron_meter_add_byName(pa->strVal,meter);
 					tk = parserGetToken(pa);
