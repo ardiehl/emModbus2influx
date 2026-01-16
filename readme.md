@@ -180,6 +180,7 @@ Long command line options requires to be prefixed with -- while as in the config
   --scanaddr=             Modbus address to scan (0)
   --scaninput             scan input registers (default=both) (0)
   --scanholding           scan holding registers (default=both) (0)
+  --test                  test config file (0)
 ```
 
 ### serial port(s) for modbus RTU
@@ -219,10 +220,10 @@ server=https://myinfluxhost.mydomain.de
 port=8086
 ```
 
-__tagname__ will be the tag used for posting to Influxdb.
-__port__ is the IP port number and defaults to 8086
-__cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.
-__measurement__ sets the default measurement and can be overriden in a meter type or in a meter definition.
+__tagname__ will be the tag used for posting to Influxdb.  
+__port__ is the IP port number and defaults to 8086  
+__cache__ is the number of posts that will be cached in case the InfluxDB server is not reachable. This is implemented as a ring buffer. The entries will be posted after the InfluxDB server is reachable again. One post consists of the data for all meters queried at the same time.  
+__measurement__ sets the default measurement and can be overriden in a meter type or in a meter definition.  
 
 ### InfluxDB version 1
 
@@ -247,7 +248,7 @@ token=
 Grafana Live is tested with http and ws (Websockets) but should work with https and wss as well. For best performance and lowest overhead, ws:// should be the perferred protocol.
 Websocket support, is at the time of writing (07/2023) still beta but seems to work fine. However, current distributions like Fedora 39 or Raspberry (Debian 11 (bullseye)) ships with a shared libcurl that do not support websockets. If you try to use websockets with a shared libcurl and websockets are not supported, emModbus2influx will try fallback to http or https:.
 To use websockets, static linking of libcurl can be enabled in Makefile. The Makefile will download a current version of curl and will configure, compile and link this version.
-In this is may be required to install additional devel packages required by curl. These are the packages i needed to compile on Debian
+In this case is may be required to install additional devel packages required by curl. These are the packages i needed to compile on Debian
 ```
 sudo apt install libmuparser-dev libmuparser2v5 libmodbus-dev libmodbus5 libreadline-dev libpaho-mqtt-dev libpaho-mqtt1.3 libzstd-dev zstd libssl-dev
 ```
@@ -344,13 +345,13 @@ __cron__: specifies the default poll interval in a crontab style (see schedule d
 --formtry
 --scanrtu
 ```
-__configfile__: sets the config file to use, default is ./emModbus2influx.conf
-**syslogtest**: sends a test message to syslog.
-**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT
-**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT
-**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.
-**formtryt**: interactively try out a formula for a MeterType
-**formtry**: interactively try out a formula for a Meter
+__configfile__: sets the config file to use, default is ./emModbus2influx.conf  
+**syslogtest**: sends a test message to syslog.  
+**dryrun**: perform one query of all meters and show what would be posted to InfluxDB / MQTT  
+**dryrun=n**: perform n querys of all meters and show what would be posted to InfluxDB / MQTT  
+**try**: try to reach the first defined meter via modbus RTU (to detect the serial port in scripts). Return code is 0 if the first Modbus RTU device can be reached or 1 on failure.  
+**formtryt**: interactively try out a formula for a MeterType  
+**formtry**: interactively try out a formula for a Meter  
 
 ## Some words about SunSpec
 
@@ -594,6 +595,7 @@ influxwritemult=2
 name="m1"                                               # the first meter named m1
 type="Live1Type"
 gname="test/m1"                                         # showing in Grafana as stream/house/test/m1
+iname="test.m1"                                         # device = test.m1 for influxdb line protocol writer
 
 [Meter]
 name="m2"                                               # showing in Grafana as stream/house/m2
