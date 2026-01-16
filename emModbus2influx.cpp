@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.39 Armin Diehl <ad@ardiehl.de> Oct 1,2025 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.40 Armin Diehl <ad@ardiehl.de> Jan 16,2026 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -82,6 +82,7 @@ int modbusDebug;
 influx_client_t *iClient;
 int showModbusRetries;
 int ModbusRTU_exitErrorCount = 5;
+int testConfigFile;
 
 #ifndef DISABLE_MQTT
 mqtt_pubT *mClient;
@@ -393,6 +394,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVAL       (1, 0 ,"scanaddr"       ,&scanAddr             ,"Modbus address to scan")
 		AP_OPT_INTVALF      (1, 0 ,"scaninput"      ,&scanInput            ,"scan input registers (default=both)")
 		AP_OPT_INTVALF      (1, 0 ,"scanholding"    ,&scanHolding          ,"scan holding registers (default=both)")
+		AP_OPT_INTVALF      (1, 0 ,"test"           ,&testConfigFile       ,"test config file")
 	AP_END;
 
 	// check if we have a configfile argument
@@ -1186,7 +1188,9 @@ int main(int argc, char *argv[]) {
 
 	readMeterDefinitions (configFileName);
 	cron_setDefault();
-	if (verbose) cron_showSchedules();
+	if (verbose || testConfigFile) cron_showSchedules();
+
+	if (testConfigFile) exit(1);
 
 
 	if (dumpRegisters) {

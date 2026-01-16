@@ -558,7 +558,7 @@ void modbusRTU_checkDeviceErrors (int exitErrorCount) {
 		}
 		if (numMetersWithQueryError > 0 && numMetersWithQueryError == numMeters) {	// all meters on serial port failed
 			if (maxQueryErrorCount >= exitErrorCount) {
-				EPRINTFN("Query of all meters (%d) on serial %s failed %d times, assuming a problem with the serial devce, terminating",numMeters,sc->device,exitErrorCount);
+				EPRINTFN("Query of all meters (%d) on serial %s failed %d times, assuming a problem with the serial device, terminating",numMeters,sc->device,exitErrorCount);
 				exit (200);
 			}
 		}
