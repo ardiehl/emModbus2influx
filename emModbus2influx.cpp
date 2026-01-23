@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.40 Armin Diehl <ad@ardiehl.de> Jan 16,2026 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.41 Armin Diehl <ad@ardiehl.de> Jan 23,2026 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -83,6 +83,7 @@ influx_client_t *iClient;
 int showModbusRetries;
 int ModbusRTU_exitErrorCount = 5;
 int testConfigFile;
+int noinitialwrite;
 
 #ifndef DISABLE_MQTT
 mqtt_pubT *mClient;
@@ -395,6 +396,7 @@ int parseArgs (int argc, char **argv) {
 		AP_OPT_INTVALF      (1, 0 ,"scaninput"      ,&scanInput            ,"scan input registers (default=both)")
 		AP_OPT_INTVALF      (1, 0 ,"scanholding"    ,&scanHolding          ,"scan holding registers (default=both)")
 		AP_OPT_INTVALF      (1, 0 ,"test"           ,&testConfigFile       ,"test config file")
+		AP_OPT_INTVALF      (1, 0 ,"noinitialwrite" ,&noinitialwrite       ,"do not perform a write after initial query of all meters")
 	AP_END;
 
 	// check if we have a configfile argument
@@ -1363,6 +1365,8 @@ int main(int argc, char *argv[]) {
 
 	workerInit(meterSerialGetNumDevices(), dryrun || (verbose>0));
 
+	if (noinitialwrite) isFirstQuery = 0;
+
 	int loopCount = 0;
 	while (!terminated) {
 #ifndef DISABLE_MQTT
@@ -1370,8 +1374,10 @@ int main(int argc, char *argv[]) {
 #endif
 		periodicProc();								// for websocket ping
 		clock_gettime(CLOCK_MONOTONIC,&timeStart);
-		if (isFirstQuery) rc = 1;
-		else rc = cron_queryMeters(dryrun || verbose>0, dryrun, &periodicProc);
+		if (isFirstQuery)
+			rc = 1;
+		else
+			rc = cron_queryMeters(dryrun || verbose>0, dryrun, &periodicProc);
 		if (rc > 0) {
 #ifndef DISABLE_FORMULAS
 			formulaNumPolls++;

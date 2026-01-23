@@ -4,7 +4,7 @@ After=network-online.target
 Requires=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/emModbus2influx --syslog --configfile=/usr/local/etc/%N.conf
+ExecStart=/usr/local/bin/emModbus2influx --syslog --configfile=/usr/local/etc/%N.conf --noinitialwrite
 Type=simple
 KillSignal=SIGTERM
 Restart=always
