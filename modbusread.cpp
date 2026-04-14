@@ -800,9 +800,10 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 			retryDelayMS += READ_RETRY_DELAY_INCMS;
 			retryCounts++;
 		} while (res < 0 && retryCount);
-		if (res < 0)
+		if (res < 0) {
 			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d (0x%04x), numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,startAddr,numRegisters,res,modbus_strerror(errno),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
-		else
+			if (meter->isTCP) modbusTCP_close (meter->hostname,meter->port);
+		} else
 			if (showModbusRetries || verbose>0)
 				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d (0x%04x), numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(initialRes));
 	}

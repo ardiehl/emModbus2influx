@@ -1,7 +1,7 @@
 #ifndef METERDEF_H_INCLUDED
 #define METERDEF_H_INCLUDED
 
-#include <modbus.h>
+#include <modbus/modbus.h>
 #include "parser.h"
 
 #define MUPARSER_ALLOWED_CHARS "0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ."
