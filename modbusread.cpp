@@ -1164,7 +1164,7 @@ void executeMeterFormulas(meter_t * meter) {
 			VPRINTF(3,"%s \"%s\" %10.2f\n",mf->name,mf->formula,mf->fvalue);
         }
         catch (mu::Parser::exception_type &e) {
-            EPRINTFN("%s.%s error evaluating meter formula (%s)",meter->name,mf->name,e.GetMsg().c_str());
+            EPRINTFN("Meter \"%s\" \"%s\": Error evaluating meter formula \"%s\" %s",meter->name,mf->name,mf->formula,e.GetMsg().c_str());
             meter->numErrs++;
             exit(1);
         }
@@ -1173,7 +1173,7 @@ void executeMeterFormulas(meter_t * meter) {
 }
 
 
-int executeMeterTypeFormulas(int verboseMsg, meter_t *meter) {
+int executeMeterTypeFormulas(int verboseMsg, meter_t *meter, int formulaTest) {
     meterRegisterRead_t *registerRead;
 
     mu::Parser * parser = NULL;
@@ -1189,8 +1189,9 @@ int executeMeterTypeFormulas(int verboseMsg, meter_t *meter) {
                 VPRINTF(2,"MeterType formula for %s: \"%s\" -> %10.2f\n",meter->name,registerRead->registerDef->formula,registerRead->fvalue);
             }
             catch (mu::Parser::exception_type &e) {
-                EPRINTFN("%s.%s error evaluating meter type formula (%s) ,%s ,setting result value to 0",meter->name,registerRead->registerDef->name,registerRead->registerDef->formula,e.GetMsg().c_str());
+                EPRINTFN("Meter \"%s\", Type \"%s\" \"%s\" error evaluating meter type formula (%s) ,%s ,setting result value to 0",meter->name,meter->meterType->name,registerRead->registerDef->name,registerRead->registerDef->formula,e.GetMsg().c_str());
                 registerRead->fvalue = 0;
+                if (formulaTest) exit(1);
             }
         }
 		registerRead = registerRead->next;
@@ -1531,7 +1532,7 @@ void setfvalueInflux () {
 int queryMeter(int verboseMsg, meter_t *meter) {
 	meterRead_t *meterReads;
 	meterRegisterRead_t *meterRegisterRead;
-	int res,count;
+	int res;
 	int regStart, regEnd;
 	uint16_t *buf;
 	int blockUsed;
@@ -1608,7 +1609,6 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 	// meter init
 	if (!meter->initDone) {
         meterInit_t *mi = meter->meterType->init;
-        count=0;
         if (verboseMsg && mi) {
             PRINTFN("%s: initializing ",meter->name);
         }
@@ -1628,7 +1628,6 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 						modbusTCP_close (meter->hostname,meter->port);
                     return -1;
                 }
-                count++;
             }
             mi = mi->next;
         }
@@ -1750,7 +1749,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 
 #ifndef DISABLE_FORMULAS
 	// local formulas
-	executeMeterTypeFormulas(verboseMsg,meter);
+	executeMeterTypeFormulas(verboseMsg,meter,0);
 #endif
 
 	if (verbose > 2) {	// show values read
@@ -2138,7 +2137,7 @@ int createModbusRegWriteBuff (uint16_t *dest, int type, double value) {
 
 
 // target can be a register, a coil or a variable of a meter formula (only useful for following writes)
-void execMeterWrite(meterWrites_t *mw, int dryrun) {
+void execMeterWrite(meterWrites_t *mw, int dryrun, int formulaTest) {
 	meterWrite_t *w = mw->meterWrite;
 	double val,conditionVal;
 	int res;
@@ -2157,31 +2156,32 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 			VPRINTF(4,"  execMeterWrites.condition (%s) \"%s\" %10.2f - %s\n",mw->meter->name,mw->conditionFormula,conditionVal,conditionVal > 0 ? "TRUE" : "FALSE");
         }
         catch (mu::Parser::exception_type &e) {
-            EPRINTFN("  %s.%s error evaluating meter write condition (%s)",mw->meter->name,mw->name,e.GetMsg().c_str());
+            EPRINTFN("Error evaluating cond= condition formula within [Write] definition \"%s\" for meter \"%s\", formula: \"%s\" (%s)",mw->name,mw->meter->name,mw->conditionFormula,e.GetMsg().c_str());
 			exit(1);
         }
         if (conditionVal <= 0) {
         	VPRINTFN(3,"  Meter write condition for %s.%s (%s) not met, exiting meter writes",mw->meter->name,mw->name,mw->conditionFormula);
-			return;
+			if (!formulaTest) return;
         }
 	}
 
 	// tcp open retry
-	if (mw->meter->isTCP) {
-		mw->meter->mb = modbusTCP_open (mw->meter->hostname,mw->meter->port);	// get it from the pool or create/open if not already in list of connections
-		if(mw->meter->mb == NULL) {
-			EPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",mw->meter->name,mw->meter->hostname,mw->meter->port ? mw->meter->port : defPort,errno,modbus_strerror(errno));
-			mw->meter->numErrs++;
+	if (!formulaTest) {
+		if (mw->meter->isTCP) {
+			mw->meter->mb = modbusTCP_open (mw->meter->hostname,mw->meter->port);	// get it from the pool or create/open if not already in list of connections
+			if(mw->meter->mb == NULL) {
+				EPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",mw->meter->name,mw->meter->hostname,mw->meter->port ? mw->meter->port : defPort,errno,modbus_strerror(errno));
+				mw->meter->numErrs++;
+				return;
+			}
+		}
+
+		res = modbus_set_slave(*mw->meter->mb, mw->meter->modbusAddress);
+		if(res < 0) {
+			EPRINTFN("  execMeterWrite: modbus_set_slave %d (%s) failed with %d",mw->meter->modbusAddress,mw->meter->name,res);
 			return;
 		}
 	}
-
-	res = modbus_set_slave(*mw->meter->mb, mw->meter->modbusAddress);
-	if(res < 0) {
-		EPRINTFN("  execMeterWrite: modbus_set_slave %d (%s) failed with %d",mw->meter->modbusAddress,mw->meter->name,res);
-		return;
-	}
-
 
 	while (w) {
 		VPRINTFN(4,"  execMeterWrite (%s.%s)",mw->meter->name,w->reg->name);
@@ -2195,14 +2195,15 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 				VPRINTFN(4,"  execMeterWrite.condition (%s.%s) \"%s\" %10.2f - %s",mw->meter->name,w->reg->name,w->conditionFormula,conditionVal,conditionVal > 0 ? "TRUE" : "FALSE");
 			}
 			catch (mu::Parser::exception_type &e) {
-				EPRINTFN("  error evaluating write condition formula within %s for meter %s, register %s, formula: \"%s\" (%s)",mw->name,mw->meter->name,w->reg->name,w->conditionFormula,e.GetMsg().c_str());
+				EPRINTFN("Error evaluating write condition formula within [Write] definition \"%s\" for meter \"%s\", register \"%s\", formula: \"%s\" (%s)",mw->name,mw->meter->name,w->reg->name,w->conditionFormula,e.GetMsg().c_str());
 				mw->meter->numErrs++;
+				if (formulaTest) exit(1);
 				return;
 			}
 		}
 #endif // DISABLE_FORMULAS
 
-		if (conditionVal > 0) {
+		if (conditionVal > 0 || formulaTest) {
 #ifndef DISABLE_FORMULAS
 			if (w->formula) {
 				if (!parser) initParser();	// Global parser
@@ -2213,6 +2214,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 				}
 				catch (mu::Parser::exception_type &e) {
 					EPRINTFN("  error evaluating meter write formula %s for meter %s, formula: \"%s\" (%s)",mw->name,mw->meter->name,w->formula,e.GetMsg().c_str());
+					if (formulaTest) exit(1);
 					mw->meter->numErrs++;
 					return;
 				}
@@ -2220,83 +2222,85 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 #endif
 				val = w->value;
 
-	#if LIBMODBUS_VERSION_CHECK(3,1,0)
-			modbus_set_response_timeout(*mw->meter->mb, READ_TIMEOUT_SECS, 0);  // 3 seconds
-	#else
-			struct timeval response_timeout;
-			response_timeout.tv_sec = READ_TIMEOUT_SECS;
-			response_timeout.tv_usec = 0;
-			modbus_set_response_timeout(*mw->meter->mb, &response_timeout);
-	#endif
+			if (!formulaTest) {
+		#if LIBMODBUS_VERSION_CHECK(3,1,0)
+				modbus_set_response_timeout(*mw->meter->mb, READ_TIMEOUT_SECS, 0);  // 3 seconds
+		#else
+				struct timeval response_timeout;
+				response_timeout.tv_sec = READ_TIMEOUT_SECS;
+				response_timeout.tv_usec = 0;
+				modbus_set_response_timeout(*mw->meter->mb, &response_timeout);
+		#endif
 
-			if (w->reg->isFormulaOnly) {
-				int setDone = 0;
-				meterRegisterRead_t * rr = mw->meter->registerRead;
-				while (rr && (!setDone)) {
-					if (strcmp(w->reg->name,rr->registerDef->name) == 0) {
-						rr->fvalue = val;
-					setDone++;
+				if (w->reg->isFormulaOnly) {
+					int setDone = 0;
+					meterRegisterRead_t * rr = mw->meter->registerRead;
+					while (rr && (!setDone)) {
+						if (strcmp(w->reg->name,rr->registerDef->name) == 0) {
+							rr->fvalue = val;
+						setDone++;
+						}
+						rr = rr->next;
 					}
-					rr = rr->next;
-				}
-				if (setDone) {
-					VPRINTFN(1,"  %s.%s (%s): wrote %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
+					if (setDone) {
+						VPRINTFN(1,"  %s.%s (%s): wrote %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
+					} else
+						EPRINTFN("  %s.%s (%s): unable to write %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
 				} else
-					EPRINTFN("  %s.%s (%s): unable to write %f to meter formula register",mw->meter->name,w->reg->name,mw->name,val);
-			} else
-			if (w->reg->regType == regTypeHolding) {
-				int numRegisters = createModbusRegWriteBuff (writeRegisters, w->reg->type, val);
-				if (numRegisters < 1 || numRegisters > 4) {
-					EPRINTFN("  fatal internal error: modbusread.cpp.execMeterWrite createModbusRegWriteBuff returned invalid number of registers (%d)",numRegisters);
-					exit(255);
-				}
-				char st[30] = "";
-				char *sp = (char *)&st;
-
-				if (dryrun || verbose > 0) {
-					for (int i=0;i<numRegisters;i++) {
-						sprintf(sp,"%04x ",writeRegisters[i]);
-						sp+=5;
+				if (w->reg->regType == regTypeHolding) {
+					int numRegisters = createModbusRegWriteBuff (writeRegisters, w->reg->type, val);
+					if (numRegisters < 1 || numRegisters > 4) {
+						EPRINTFN("  fatal internal error: modbusread.cpp.execMeterWrite createModbusRegWriteBuff returned invalid number of registers (%d)",numRegisters);
+						exit(255);
 					}
-				}
+					char st[30] = "";
+					char *sp = (char *)&st;
 
-				if (dryrun) {
-					PRINTFN("%s (%s): would write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
-				} else {
-					int rc;
-					char s[2] = "";
-					//VPRINTFN(3,"  %s (%s): write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
-					// TODO: check if value is already there
-					if (numRegisters == 1) {
-						rc = modbus_write_register(*mw->meter->mb, w->reg->startAddr, writeRegisters[0]);  // function 0x06
+					if (dryrun || verbose > 0) {
+						for (int i=0;i<numRegisters;i++) {
+							sprintf(sp,"%04x ",writeRegisters[i]);
+							sp+=5;
+						}
+					}
+
+					if (dryrun) {
+						PRINTFN("%s (%s): would write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
 					} else {
-						strcpy(s,"s");
-						rc = modbus_write_registers(*mw->meter->mb, w->reg->startAddr, numRegisters, writeRegisters);   // function 0x10
-					}
+						int rc;
+						char s[2] = "";
+						//VPRINTFN(3,"  %s (%s): write %d words starting at address %d with value %f [ %s]",mw->meter->name,mw->name,numRegisters,w->reg->startAddr,val,st);
+						// TODO: check if value is already there
+						if (numRegisters == 1) {
+							rc = modbus_write_register(*mw->meter->mb, w->reg->startAddr, writeRegisters[0]);  // function 0x06
+						} else {
+							strcpy(s,"s");
+							rc = modbus_write_registers(*mw->meter->mb, w->reg->startAddr, numRegisters, writeRegisters);   // function 0x10
+						}
 
-					if (rc != numRegisters) {
-						EPRINTFN("%s: execMeterWrite (%s): modbus_write_register%s returned %d, expected %d, errno: %d (%s)",mw->meter->name,mw->name,s,rc,numRegisters,errno,modbus_strerror(errno));
-					} else
-						VPRINTFN(1,"  %s.%s (%s): wrote %d register(s) at address %d with value %f",mw->meter->name,w->reg->name,mw->name,numRegisters,w->reg->startAddr,val);
+						if (rc != numRegisters) {
+							EPRINTFN("%s: execMeterWrite (%s): modbus_write_register%s returned %d, expected %d, errno: %d (%s)",mw->meter->name,mw->name,s,rc,numRegisters,errno,modbus_strerror(errno));
+						} else
+							VPRINTFN(1,"  %s.%s (%s): wrote %d register(s) at address %d with value %f",mw->meter->name,w->reg->name,mw->name,numRegisters,w->reg->startAddr,val);
+					}
+				} else
+				if (w->reg->regType == regTypeCoil) {
+					if (dryrun) {
+						PRINTFN("%s (%s): would write coil at address %d with value %s",mw->meter->name,mw->name,w->reg->startAddr,val > 0 ? "true" : "false");
+					} else {
+						int rc = modbus_write_bit(*mw->meter->mb, w->reg->startAddr, val > 0 ? TRUE : FALSE);
+						if (rc != 1) {
+							EPRINTFN("%s: execMeterWrite (%s.%s): modbus_write_bit returned %d, expected 1, errno: %d (%s)",mw->meter->name,w->reg->name,mw->name,rc,errno,modbus_strerror(errno));
+						} else
+							VPRINTFN(1,"  %s (%s): wrote coil at address %d with value %f [ %d]",mw->meter->name,mw->name,w->reg->startAddr,val,val > 0 ? 1 : 0);
+					}
+				} else
+					EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
+				if (w->returnOnWrite) {
+					EPRINTFN("end execMeterWrite %s return",mw->meter->name);
+					if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
+						modbusTCP_close (mw->meter->hostname,mw->meter->port);
+					return;
 				}
-			} else
-			if (w->reg->regType == regTypeCoil) {
-				if (dryrun) {
-					PRINTFN("%s (%s): would write coil at address %d with value %s",mw->meter->name,mw->name,w->reg->startAddr,val > 0 ? "true" : "false");
-				} else {
-					int rc = modbus_write_bit(*mw->meter->mb, w->reg->startAddr, val > 0 ? TRUE : FALSE);
-					if (rc != 1) {
-						EPRINTFN("%s: execMeterWrite (%s.%s): modbus_write_bit returned %d, expected 1, errno: %d (%s)",mw->meter->name,w->reg->name,mw->name,rc,errno,modbus_strerror(errno));
-					} else
-						VPRINTFN(1,"  %s (%s): wrote coil at address %d with value %f [ %d]",mw->meter->name,mw->name,w->reg->startAddr,val,val > 0 ? 1 : 0);
-				}
-			} else
-				EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
-			if (w->returnOnWrite) {
-				EPRINTFN("end execMeterWrite %s return",mw->meter->name);
-				if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
-					modbusTCP_close (mw->meter->hostname,mw->meter->port);
-				return;
 			}
 		} else {
 			VPRINTFN(3,"  write condition for %s.%s.%s (%s) not met, skipping meter write",mw->meter->name,mw->name,w->reg->name,mw->conditionFormula);
@@ -2304,6 +2308,8 @@ void execMeterWrite(meterWrites_t *mw, int dryrun) {
 		}
 		w = w->next;
 	}
-	if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
-		modbusTCP_close (mw->meter->hostname,mw->meter->port);
+
+	if (!formulaTest)
+		if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
+			modbusTCP_close (mw->meter->hostname,mw->meter->port);
 }

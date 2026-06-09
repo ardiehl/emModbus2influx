@@ -667,7 +667,6 @@ int parseMeter (parser_t * pa) {
 	meter_t *meter;
 	char errMsg[255];
 	meterFormula_t * meterFormula;  // calculated meter specific registers
-	int typeDefined = 0;
 	int typeConflict = 0;
 	int enableInfluxWrite = 1;	// defaults for formula registers
     int enableMqttWrite = 1;
@@ -808,7 +807,6 @@ int parseMeter (parser_t * pa) {
 					free(meter->influxMeasurement);
 					meter->influxMeasurement = strdup(meter->meterType->influxMeasurement);
 				}
-				typeDefined++;
 				break;
 			case TK_INAME:
 				parserExpectEqual(pa,TK_STRVAL);

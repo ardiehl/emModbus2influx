@@ -471,7 +471,7 @@ int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)()) {
 					numMeters++;
 					meter->meterHasBeenRead++;
 #ifndef DISABLE_FORMULAS
-					executeMeterTypeFormulas(verbose>2,meter);
+					executeMeterTypeFormulas(verbose>2,meter,0);
 #endif
 				} else {
 					res = queryMeter(verbose > 0, meter);
@@ -499,7 +499,7 @@ int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)()) {
 				numMeters++;
 				meter->meterHasBeenRead++;
 #ifndef DISABLE_FORMULAS
-				executeMeterTypeFormulas(verbose>2,meter);
+				executeMeterTypeFormulas(verbose>2,meter,0);
 #endif
 			} else
 			if (meter->isDue && meter->isTCP) {
@@ -569,7 +569,7 @@ int cron_queryMeters(int verboseMsg, int dryrun, void (*periodicProc)()) {
 	while (cd) {
 		mw = cd->memberWrites;
 		while (mw) {
-			if (mw->isDue) execMeterWrite(mw, dryrun);
+			if (mw->isDue) execMeterWrite(mw, dryrun, 0);
 			mw = mw->next;
 		}
 		cd = cd->next;

@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.42 Armin Diehl <ad@ardiehl.de> Apr 14,2026 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.43 Armin Diehl <ad@ardiehl.de> Jun 9,2026 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1096,6 +1096,33 @@ void periodicProc() {
 		if (iClient->influxBufLen == 0 && iClient->url) influxdb_post_http(iClient);
 }
 
+extern cronDef_t *cronTab;
+
+// test formulas for all enabled meters and writes
+void testFormulas () {
+	meter_t * meter = meters;
+	meterWrites_t * mw = meterWrites;
+	cronDef_t * cd = cronTab;
+	// enabled meters
+	VPRINTFN(1,"Testing meter formulas");
+	while (meter) {
+		if (!meter->disabled) {
+			executeMeterTypeFormulas(0,meter,1);
+			executeMeterFormulas(meter);
+		}
+		meter = meter->next;
+	}
+	// writes
+	while (cd) {
+		mw = cd->memberWrites;
+		while (mw) {
+			execMeterWrite(mw, dryrun, 1);
+			mw = mw->next;
+		}
+		cd = cd->next;
+	}
+}
+
 
 int main(int argc, char *argv[]) {
 	int rc,i;
@@ -1192,7 +1219,11 @@ int main(int argc, char *argv[]) {
 	cron_setDefault();
 	if (verbose || testConfigFile) cron_showSchedules();
 
-	if (testConfigFile) exit(1);
+	testFormulas ();
+	if (testConfigFile) {
+		printf("No errors found in config file\n");
+		exit(1);
+	}
 
 
 	if (dumpRegisters) {

@@ -36,7 +36,7 @@ void setMeterFvalueInfluxLast (meter_t *meter);
 void setMeterFvalueInflux (meter_t * meter);
 
 #ifndef DISABLE_FORMULAS
-int executeMeterTypeFormulas(int verboseMsg, meter_t *meter);
+int executeMeterTypeFormulas(int verboseMsg, meter_t *meter, int formulaTest);
 void executeMeterFormulas(meter_t * meter);
 #endif
 
@@ -64,7 +64,7 @@ void setTarif (int verboseMsg);
 
 void modbusread_free();
 
-void execMeterWrite(meterWrites_t *mw, int dryrun);
+void execMeterWrite(meterWrites_t *mw, int dryrun, int formulaTest);
 
 #endif // MODBUSREAD_H_INCLUDED
 
