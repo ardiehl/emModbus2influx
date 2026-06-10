@@ -50,7 +50,7 @@ and send the data to influxdb (1.x or 2.x API) and/or via mqtt
 #include "MQTTClient.h"
 #endif
 
-#define VER "1.43 Armin Diehl <ad@ardiehl.de> Jun 9,2026 compiled " __DATE__ " " __TIME__ " "
+#define VER "1.44 Armin Diehl <ad@ardiehl.de> Jun 10,2026 compiled " __DATE__ " " __TIME__ " "
 #define ME "emModbus2influx"
 #define CONFFILE "emModbus2influx.conf"
 
@@ -1130,7 +1130,7 @@ int main(int argc, char *argv[]) {
 	uint64_t influxTimestamp;
 	struct timespec timeStart, timeEnd;
 	int isFirstQuery = 1;  // takes longer due to init and/or getting sunspec id's
-	int isFirstRealQuery = 0;
+	int isFirstRealQuery = 1;
 	double queryTime;
 	int numMeters;
 

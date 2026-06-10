@@ -59,7 +59,7 @@ meterIPConnection_t * meterIPconnections;
 
 const char * defPort = "502";
 
-void modbusTCP_close (char *device, char *port) {
+void modbusTCP_close (char *device, char *port, int showDisconnectMessage) {
 	meterIPConnection_t * mc = meterIPconnections;
 
 	if (port == NULL) port = (char *)defPort;
@@ -68,7 +68,7 @@ void modbusTCP_close (char *device, char *port) {
 		if (strcmp(device,mc->hostname) == 0)
 			if (strcmp(port,mc->port) == 0) {
 				if (mc->isConnected) {
-					PRINTFN("modbusTCP_close: disconnecting from %s:%s",device,port);
+					if (showDisconnectMessage) PRINTFN("modbusTCP_close: disconnecting from %s:%s",device,port);
 					mc->isConnected = 0;
 					modbus_close(mc->mb);
 				}
@@ -78,7 +78,7 @@ void modbusTCP_close (char *device, char *port) {
 	}
 }
 
-modbus_t ** modbusTCP_open (char *device, char *port) {
+modbus_t ** modbusTCP_open (char *device, char *port, int showConnectMessage) {
 	int res;
 	meterIPConnection_t * mc = meterIPconnections;
 
@@ -100,7 +100,7 @@ modbus_t ** modbusTCP_open (char *device, char *port) {
 				res = modbus_connect(mc->mb);
 				if (res == 0) {
 					mc->isConnected = 1;
-					PRINTFN("modbusTCP_open (%s:%s): connected",device,port);
+					if (showConnectMessage) PRINTFN("modbusTCP_open (%s:%s): connected",device,port);
 					modbus_set_error_recovery(mc->mb,(modbus_error_recovery_mode) (MODBUS_ERROR_RECOVERY_PROTOCOL));
 #ifdef MODBUS_RESPOSE_TIMEOUT_TCP
 					modbus_set_response_timeout(mc->mb,0,MODBUS_RESPOSE_TIMEOUT_TCP);
@@ -141,7 +141,7 @@ modbus_t ** modbusTCP_open (char *device, char *port) {
 #endif
 		return &mc->mb;
 	}
-	VPRINTFN(2,"modbusTCP_open (%s:%s): connect failed retrying later",device,port);
+	EPRINTFN("modbusTCP_open (%s:%s): connect failed retrying later",device,port);
 	mc->retryCount = TCP_OPEN_RETRY_DELAY;
 	return NULL;
 }
@@ -802,7 +802,7 @@ int readRegisters (meter_t *meter, regType_t regType, int startAddr, int numRegi
 		} while (res < 0 && retryCount);
 		if (res < 0) {
 			EPRINTFN("modbusread.cpp readRegisters failed for meter \"%s\" [%s]: start: %d (0x%04x), numRegisters: %d, res: %d (%s) after %d retry%s, lastDelay: %d ms",meter->name,meter->meterType->name,startAddr,startAddr,numRegisters,res,modbus_strerror(errno),retryCounts,retryCounts>1 ? "s":"",retryDelayMS-READ_RETRY_DELAY_INCMS);
-			if (meter->isTCP) modbusTCP_close (meter->hostname,meter->port);
+			if (meter->isTCP) modbusTCP_close (meter->hostname,meter->port,1);
 		} else
 			if (showModbusRetries || verbose>0)
 				EPRINTFN("modbusread.cpp readRegisters for meter \"%s\" [%s]: success after %d retry%s, start: %d (0x%04x), numRegisters: %d, lastDelay: %d ms, first res: %d (%s)",meter->name,meter->meterType->name,retryCounts,retryCounts>1 ? "s":"",startAddr,startAddr,numRegisters,retryDelayMS-READ_RETRY_DELAY_INCMS,initialRes,modbus_strerror(initialRes));
@@ -1573,7 +1573,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 
 	// tcp open retry
 	if (meter->isTCP) {
-		meter->mb = modbusTCP_open (meter->hostname,meter->port);	// get it from the pool or create/open if not already in list of connections
+		meter->mb = modbusTCP_open (meter->hostname,meter->port,meter->meterType->tcpCloseAfterQuery ? 0 : 1);	// get it from the pool or create/open if not already in list of connections
 		if(meter->mb == NULL) {
 			//WPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",meter->name,meter->hostname,meter->port ? meter->port : defPort,errno,modbus_strerror(errno));
 			meter->numErrs++;
@@ -1625,7 +1625,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                     EPRINTFN("%s: init failed (write of %d registers starting at address %d (%d: %s)",meter->name,mi->numWords,mi->startAddr+sunspecOffset,res,modbus_strerror(errno));
                     meter->queryErrorCount++;
                     if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
-						modbusTCP_close (meter->hostname,meter->port);
+						modbusTCP_close (meter->hostname,meter->port,0);
                     return -1;
                 }
             }
@@ -1686,7 +1686,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
 			meter->numErrs++;
 			EPRINTFN("%s: failed to read block of %d registers starting at register %d, res: %d, errno:%d (%s), numErrs: %d",meter->meterType->name,numRegisters,regStart,res,errno,modbus_strerror(errno),meter->numErrs);
 			if (meter->isTCP)
-				modbusTCP_close (meter->hostname,meter->port);
+				modbusTCP_close (meter->hostname,meter->port,1);
 			meter->queryErrorCount++;
 			return res;  // for TCP open retry
 		}
@@ -1722,7 +1722,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                         meter->numErrs++;
                         meter->queryErrorCount++;
                         if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
-							modbusTCP_close (meter->hostname,meter->port);
+							modbusTCP_close (meter->hostname,meter->port,0);
                         return res;
                     }
                     if (verbose > 3) {
@@ -1736,7 +1736,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
                 	meter->queryErrorCount++;
                 	VPRINTFN(1,"%s (%s): readRegisters (%d (0x%04x),%d) failed (%s)",meter->name,meterRegisterRead->registerDef->name,regStart,regStart,regEnd,modbus_strerror(errno));
                 	if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
-						modbusTCP_close (meter->hostname,meter->port);
+						modbusTCP_close (meter->hostname,meter->port,0);
                     return res;
                 }
             } else
@@ -1745,7 +1745,7 @@ int queryMeter(int verboseMsg, meter_t *meter) {
         meterRegisterRead = meterRegisterRead->next;
 	}
 	if (meter->isTCP && meter->meterType->tcpCloseAfterQuery)
-		modbusTCP_close (meter->hostname,meter->port);
+		modbusTCP_close (meter->hostname,meter->port,0);
 
 #ifndef DISABLE_FORMULAS
 	// local formulas
@@ -2168,7 +2168,7 @@ void execMeterWrite(meterWrites_t *mw, int dryrun, int formulaTest) {
 	// tcp open retry
 	if (!formulaTest) {
 		if (mw->meter->isTCP) {
-			mw->meter->mb = modbusTCP_open (mw->meter->hostname,mw->meter->port);	// get it from the pool or create/open if not already in list of connections
+			mw->meter->mb = modbusTCP_open (mw->meter->hostname,mw->meter->port,mw->meter->meterType->tcpCloseAfterQuery ? 0 : 1);	// get it from the pool or create/open if not already in list of connections
 			if(mw->meter->mb == NULL) {
 				EPRINTFN("%s: connect to %s:%s failed, will retry later, errno: %d (%s)",mw->meter->name,mw->meter->hostname,mw->meter->port ? mw->meter->port : defPort,errno,modbus_strerror(errno));
 				mw->meter->numErrs++;
@@ -2296,9 +2296,9 @@ void execMeterWrite(meterWrites_t *mw, int dryrun, int formulaTest) {
 				} else
 					EPRINTFN("%s: internal error: modbusread.cpp.execMeterWrite (%s) regType is not Holding nor Coil)",mw->meter->name,mw->name);
 				if (w->returnOnWrite) {
-					EPRINTFN("end execMeterWrite %s return",mw->meter->name);
+					VPRINTFN(1,"end execMeterWrite %s return",mw->meter->name);
 					if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
-						modbusTCP_close (mw->meter->hostname,mw->meter->port);
+						modbusTCP_close (mw->meter->hostname,mw->meter->port,0);
 					return;
 				}
 			}
@@ -2311,5 +2311,5 @@ void execMeterWrite(meterWrites_t *mw, int dryrun, int formulaTest) {
 
 	if (!formulaTest)
 		if (mw->meter->isTCP && mw->meter->meterType->tcpCloseAfterQuery)
-			modbusTCP_close (mw->meter->hostname,mw->meter->port);
+			modbusTCP_close (mw->meter->hostname,mw->meter->port,0);
 }
